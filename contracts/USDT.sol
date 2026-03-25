@@ -2,10 +2,14 @@
 pragma solidity ^0.8.27;
 
 // Fhenix Imports (LATEST API)
-import { FHE, euint32, ebool, inEuint32 } from "@fhenixprotocol/contracts/FHE.sol";
+import {
+    FHE,
+    euint32,
+    ebool,
+    inEuint32
+} from "@fhenixprotocol/contracts/FHE.sol";
 
 contract FHEUSDT {
-
     string public name = "FHE USDT";
     string public symbol = "fUSDT";
     uint8 public decimals = 6;
@@ -38,9 +42,24 @@ contract FHEUSDT {
     /* ========== TRANSFER ========== */
 
     function transfer(address to, inEuint32 calldata encAmount) external {
-
         euint32 amount = FHE.asEuint32(encAmount);
 
+        ebool canTransfer = FHE.gte(balances[msg.sender], amount);
+
+        balances[msg.sender] = FHE.select(
+            canTransfer,
+            FHE.sub(balances[msg.sender], amount),
+            balances[msg.sender]
+        );
+
+        balances[to] = FHE.select(
+            canTransfer,
+            FHE.add(balances[to], amount),
+            balances[to]
+        );
+    }
+
+    function transferEncrypted(address to, euint32 amount) external {
         ebool canTransfer = FHE.gte(balances[msg.sender], amount);
 
         balances[msg.sender] = FHE.select(
@@ -59,7 +78,6 @@ contract FHEUSDT {
     /* ========== APPROVE ========== */
 
     function approve(address spender, inEuint32 calldata encAmount) external {
-
         euint32 amount = FHE.asEuint32(encAmount);
 
         allowances[msg.sender][spender] = amount;
@@ -72,7 +90,6 @@ contract FHEUSDT {
         address to,
         inEuint32 calldata encAmount
     ) external {
-
         euint32 amount = FHE.asEuint32(encAmount);
 
         // Check allowance
@@ -112,11 +129,10 @@ contract FHEUSDT {
         return balances[user];
     }
 
-    function allowance(address ownerAddr, address spender)
-        external
-        view
-        returns (euint32)
-    {
+    function allowance(
+        address ownerAddr,
+        address spender
+    ) external view returns (euint32) {
         return allowances[ownerAddr][spender];
     }
 }
