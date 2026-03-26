@@ -1,47 +1,51 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.19;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
 import {
     FHE,
-    euint32,
+    euint64,
     ebool,
-    inEuint32
-} from "@fhenixprotocol/contracts/FHE.sol";
+    InEuint64
+} from "@fhenixprotocol/cofhe-contracts/FHE.sol";
 
-/* ========== FHE TOKEN INTERFACE ========== */
-interface IFHEUSDT {
-    function transfer(address to, inEuint32 calldata amount) external;
-    function transferFrom(
+/* ========== FHERC20 INTERFACE ========== */
+interface IFHERC20 {
+    function confidentialTransfer(address to, InEuint64 memory value) external returns (euint64);
+    function confidentialTransfer(address to, euint64 value) external returns (euint64);
+
+    function confidentialTransferFrom(
         address from,
         address to,
-        inEuint32 calldata amount
-    ) external;
+        InEuint64 memory value
+    ) external returns (euint64);
 
-    // 🔥 NEW (IMPORTANT)
-    function transferEncrypted(address to, euint32 amount) external;
+    function confidentialTransferFrom(
+        address from,
+        address to,
+        euint64 value
+    ) external returns (euint64);
+
+    function setOperator(address operator, uint48 until) external;
 }
 
 /* ========== CONTRACT ========== */
 contract VaultKeeper is Ownable {
-    enum RiskLevel {
-        Low,
-        Medium,
-        High
-    }
+
+    enum RiskLevel { Low, Medium, High }
 
     struct Vault {
         string name;
         RiskLevel riskLevel;
         uint256 minAPY;
         uint256 maxAPY;
-        euint32 totalValueLocked; // 🔐 encrypted
+        euint64 totalValueLocked;
         address tokenAddress;
         bool active;
     }
 
     struct UserDeposit {
-        euint32 amount; // 🔐 encrypted
+        euint64 amount;
         uint256 timestamp;
     }
 
@@ -52,21 +56,15 @@ contract VaultKeeper is Ownable {
 
     mapping(uint256 => Vault) public vaults;
     mapping(uint256 => mapping(address => UserDeposit)) public userDeposits;
+    mapping(uint256 => mapping(address => euint64)) public rewardsClaimed;
     mapping(uint256 => address[]) public vaultDepositors;
-    mapping(uint256 => mapping(address => euint32)) public rewardsClaimed;
 
-    /* ========== EVENTS (amounts removed for privacy) ========== */
-    event VaultCreated(
-        uint256 indexed vaultId,
-        string name,
-        RiskLevel riskLevel
-    );
+    /* ========== EVENTS ========== */
+    event VaultCreated(uint256 indexed vaultId, string name, RiskLevel riskLevel);
     event DepositMade(uint256 indexed vaultId, address indexed user);
     event WithdrawalMade(uint256 indexed vaultId, address indexed user);
-    event APYUpdated(uint256 indexed vaultId, uint256 minAPY, uint256 maxAPY);
-    event VaultStatusChanged(uint256 indexed vaultId, bool active);
 
-    constructor(address _initialOwner) Ownable(_initialOwner) {}
+    constructor(address _owner) Ownable(_owner) {}
 
     /* ========== OWNER FUNCTIONS ========== */
 
@@ -77,92 +75,63 @@ contract VaultKeeper is Ownable {
         uint256 maxAPY,
         address tokenAddress
     ) external onlyOwner {
-        require(minAPY <= maxAPY, "Invalid APY");
-        require(tokenAddress != address(0), "Invalid token");
 
         vaults[vaultCount] = Vault({
             name: name,
             riskLevel: riskLevel,
             minAPY: minAPY,
             maxAPY: maxAPY,
-            totalValueLocked: FHE.asEuint32(0),
+            totalValueLocked: FHE.asEuint64(0),
             tokenAddress: tokenAddress,
             active: true
         });
 
+        emit VaultCreated(vaultCount, name, riskLevel);
         vaultCount++;
-
-        emit VaultCreated(vaultCount - 1, name, riskLevel);
     }
 
-    function setRewardToken(address _rewardToken) external onlyOwner {
-        require(_rewardToken != address(0), "Invalid token");
-        rewardToken = _rewardToken;
-    }
-
-    function updateAPY(
-        uint256 vaultId,
-        uint256 minAPY,
-        uint256 maxAPY
-    ) external onlyOwner {
-        require(vaultId < vaultCount, "Invalid vault ID");
-
-        vaults[vaultId].minAPY = minAPY;
-        vaults[vaultId].maxAPY = maxAPY;
-
-        emit APYUpdated(vaultId, minAPY, maxAPY);
-    }
-
-    function toggleVaultActive(uint256 vaultId) external onlyOwner {
-        require(vaultId < vaultCount, "Invalid vault ID");
-
-        vaults[vaultId].active = !vaults[vaultId].active;
-
-        emit VaultStatusChanged(vaultId, vaults[vaultId].active);
+    function setRewardToken(address _token) external onlyOwner {
+        rewardToken = _token;
     }
 
     /* ========== USER FUNCTIONS ========== */
 
-    function deposit(uint256 vaultId, inEuint32 calldata encAmount) external {
-        require(vaultId < vaultCount, "Invalid vault ID");
-        require(vaults[vaultId].active, "Vault not active");
+    function deposit(uint256 vaultId, InEuint64 calldata encAmount) external {
 
-        IFHEUSDT token = IFHEUSDT(vaults[vaultId].tokenAddress);
+        Vault storage v = vaults[vaultId];
+        require(v.active, "Inactive vault");
 
-        // 🔐 transfer encrypted tokens
-        token.transferFrom(msg.sender, address(this), encAmount);
+        IFHERC20 token = IFHERC20(v.tokenAddress);
 
-        euint32 amount = FHE.asEuint32(encAmount);
+        token.confidentialTransferFrom(msg.sender, address(this), encAmount);
+
+        euint64 amount = FHE.asEuint64(encAmount);
 
         if (userDeposits[vaultId][msg.sender].timestamp == 0) {
             vaultDepositors[vaultId].push(msg.sender);
         }
 
-        userDeposits[vaultId][msg.sender].amount = FHE.add(
-            userDeposits[vaultId][msg.sender].amount,
-            amount
-        );
+        userDeposits[vaultId][msg.sender].amount =
+            FHE.add(userDeposits[vaultId][msg.sender].amount, amount);
+
+        v.totalValueLocked =
+            FHE.add(v.totalValueLocked, amount);
 
         userDeposits[vaultId][msg.sender].timestamp = block.timestamp;
-
-        vaults[vaultId].totalValueLocked = FHE.add(
-            vaults[vaultId].totalValueLocked,
-            amount
-        );
 
         emit DepositMade(vaultId, msg.sender);
     }
 
-    function withdraw(uint256 vaultId, inEuint32 calldata encAmount) external {
-        require(vaultId < vaultCount, "Invalid vault ID");
+    function withdraw(uint256 vaultId, InEuint64 calldata encAmount) external {
 
-        IFHEUSDT token = IFHEUSDT(vaults[vaultId].tokenAddress);
-
+        Vault storage v = vaults[vaultId];
         UserDeposit storage user = userDeposits[vaultId][msg.sender];
 
-        euint32 amount = FHE.asEuint32(encAmount);
+        IFHERC20 token = IFHERC20(v.tokenAddress);
 
-        ebool canWithdraw = FHE.gte(user.amount, amount);
+        euint64 amount = FHE.asEuint64(encAmount);
+
+        ebool canWithdraw = amount.lte(user.amount);
 
         user.amount = FHE.select(
             canWithdraw,
@@ -170,86 +139,83 @@ contract VaultKeeper is Ownable {
             user.amount
         );
 
-        vaults[vaultId].totalValueLocked = FHE.select(
+        v.totalValueLocked = FHE.select(
             canWithdraw,
-            FHE.sub(vaults[vaultId].totalValueLocked, amount),
-            vaults[vaultId].totalValueLocked
+            FHE.sub(v.totalValueLocked, amount),
+            v.totalValueLocked
         );
 
-        user.timestamp = block.timestamp;
-
-        token.transfer(msg.sender, encAmount);
+        token.confidentialTransfer(msg.sender, encAmount);
 
         emit WithdrawalMade(vaultId, msg.sender);
     }
 
-    function calculateYield(
-        uint256 vaultId,
-        address userAddr
-    ) public view returns (euint32) {
+    function calculateYield(uint256 vaultId, address userAddr)
+        public returns (euint64)
+    {
         UserDeposit memory user = userDeposits[vaultId][userAddr];
 
-        uint256 avgAPY = (vaults[vaultId].minAPY + vaults[vaultId].maxAPY) / 2;
+        uint256 avgAPY =
+            (vaults[vaultId].minAPY + vaults[vaultId].maxAPY) / 2;
 
-        euint32 encAPY = FHE.asEuint32(avgAPY);
-        euint32 encBasis = FHE.asEuint32(BASIS_POINTS);
-
-        return FHE.div(FHE.mul(user.amount, encAPY), encBasis);
+        return FHE.div(
+            FHE.mul(user.amount, FHE.asEuint64(avgAPY)),
+            FHE.asEuint64(BASIS_POINTS)
+        );
     }
 
     function claimRewards(uint256 vaultId) external {
-        require(vaultId < vaultCount, "Invalid vault");
-        require(rewardToken != address(0), "Reward token not set");
 
-        IFHEUSDT token = IFHEUSDT(rewardToken);
+        IFHERC20 token = IFHERC20(rewardToken);
 
-        euint32 reward = calculateYield(vaultId, msg.sender);
+        euint64 reward = calculateYield(vaultId, msg.sender);
 
-        rewardsClaimed[vaultId][msg.sender] = FHE.add(
-            rewardsClaimed[vaultId][msg.sender],
-            reward
-        );
+        rewardsClaimed[vaultId][msg.sender] =
+            FHE.add(rewardsClaimed[vaultId][msg.sender], reward);
 
-        // ✅ FIX: use encrypted transfer
-        token.transferEncrypted(msg.sender, reward);
+        token.confidentialTransfer(msg.sender, reward);
     }
 
-    /* ========== GETTERS ========== */
+    /* ========== GETTERS (ALL INCLUDED) ========== */
 
-    function getPendingRewards(
-        uint256 vaultId,
-        address user
-    ) external view returns (euint32) {
+    function getPendingRewards(uint256 vaultId, address user)
+        external returns (euint64)
+    {
         return calculateYield(vaultId, user);
     }
 
-    function getUserDeposit(
-        uint256 vaultId,
-        address user
-    ) external view returns (euint32 amount, uint256 timestamp) {
+    function getUserDeposit(uint256 vaultId, address user)
+        external view
+        returns (euint64 amount, uint256 timestamp)
+    {
         UserDeposit memory d = userDeposits[vaultId][user];
         return (d.amount, d.timestamp);
     }
 
-    function getVaultAPY(
-        uint256 vaultId
-    ) external view returns (uint256, uint256) {
-        return (vaults[vaultId].minAPY, vaults[vaultId].maxAPY);
+    function getVaultAPY(uint256 vaultId)
+        external view returns (uint256, uint256)
+    {
+        return (
+            vaults[vaultId].minAPY,
+            vaults[vaultId].maxAPY
+        );
     }
 
-    function getVaultTVL(uint256 vaultId) external view returns (euint32) {
+    function getVaultTVL(uint256 vaultId)
+        external view returns (euint64)
+    {
         return vaults[vaultId].totalValueLocked;
     }
 
-    function getUserVaultSummary(
-        uint256 vaultId,
-        address user
-    )
-        external
-        view
-        returns (euint32 deposit, euint32 pendingRewards, euint32 vaultTVL)
+    function getUserVaultSummary(uint256 vaultId, address user)
+        external 
+        returns (
+            euint64 userDeposit,
+            euint64 pendingRewards,
+            euint64 vaultTVL
+        )
     {
-        deposit = userDeposits[vaultId][user].amount;
+        userDeposit = userDeposits[vaultId][user].amount;
         pendingRewards = calculateYield(vaultId, user);
         vaultTVL = vaults[vaultId].totalValueLocked;
     }
@@ -264,27 +230,23 @@ contract VaultKeeper is Ownable {
         return allVaults;
     }
 
-    function getDepositorCount(
-        uint256 vaultId
-    ) external view returns (uint256) {
+    function getDepositorCount(uint256 vaultId)
+        external view returns (uint256)
+    {
         return vaultDepositors[vaultId].length;
     }
 
     /* ========== EMERGENCY ========== */
 
     function emergencyWithdraw(uint256 vaultId) external onlyOwner {
-        require(vaultId < vaultCount, "Invalid vault");
 
         Vault storage v = vaults[vaultId];
-        IFHEUSDT token = IFHEUSDT(v.tokenAddress);
+        IFHERC20 token = IFHERC20(v.tokenAddress);
 
-        // 🔐 Get full encrypted TVL
-        euint32 amount = v.totalValueLocked;
+        euint64 amount = v.totalValueLocked;
 
-        // 🔐 Reset vault TVL
-        v.totalValueLocked = FHE.asEuint32(0);
+        v.totalValueLocked = FHE.asEuint64(0);
 
-        // ✅ CORRECT CALL
-        token.transferEncrypted(owner(), amount);
+        token.confidentialTransfer(owner(), amount);
     }
 }
