@@ -1,0 +1,46 @@
+{
+  "name": "hardhat-project",
+  "scripts": {
+    "deploy:vault": "hardhat run scripts/deployVaultKeeper.ts --network base-sepolia",
+    "deploy:vault:arb": "hardhat run scripts/deployVaultKeeper.ts --network arb-sepolia",
+    "deploy:vault:local": "hardhat run scripts/deployVaultKeeper.ts",
+    "deploy:usdt": "hardhat run scripts/deployUSDT.ts --network base-sepolia",
+    "deploy:usdt:arb": "hardhat run scripts/deployUSDT.ts --network arb-sepolia",
+    "deploy:usdt:local": "hardhat run scripts/deployUSDT.ts",
+    "seed:wallets:10": "hardhat run scripts/seedTenWalletsAndDeposit.ts --network base-sepolia",
+    "seed:wallets:10:arb": "hardhat run scripts/seedTenWalletsAndDeposit.ts --network arb-sepolia",
+    "seed:wallets:10:local": "hardhat run scripts/seedTenWalletsAndDeposit.ts",
+    "vaults:status": "hardhat run scripts/vaultStatus.ts --network base-sepolia",
+    "vaults:status:arb": "hardhat run scripts/vaultStatus.ts --network arb-sepolia",
+    "vaults:status:local": "hardhat run scripts/vaultStatus.ts",
+    "vaults:set-reward-token": "hardhat run scripts/vaultSetRewardToken.ts --network base-sepolia",
+    "vaults:set-reward-token:arb": "hardhat run scripts/vaultSetRewardToken.ts --network arb-sepolia",
+    "vaults:create": "hardhat run scripts/vaultCreate.ts --network base-sepolia",
+    "vaults:create:arb": "hardhat run scripts/vaultCreate.ts --network arb-sepolia",
+    "vaults:update-apy": "hardhat run scripts/vaultUpdateApy.ts --network base-sepolia",
+    "vaults:update-apy:arb": "hardhat run scripts/vaultUpdateApy.ts --network arb-sepolia",
+    "vaults:toggle": "hardhat run scripts/vaultToggle.ts --network base-sepolia",
+    "vaults:toggle:arb": "hardhat run scripts/vaultToggle.ts --network arb-sepolia",
+    "vaults:emergency-withdraw": "hardhat run scripts/vaultEmergencyWithdraw.ts --network base-sepolia",
+    "vaults:emergency-withdraw:arb": "hardhat run scripts/vaultEmergencyWithdraw.ts --network arb-sepolia",
+    "owner:1:deploy": "npm run deploy:vault",
+    "owner:2:set-reward-token": "npm run vaults:set-reward-token",
+    "owner:3:create-stable": "VAULT_NAME=Stable VAULT_RISK_LEVEL=low VAULT_MIN_APY_BPS=500 VAULT_MAX_APY_BPS=800 VAULT_TOKEN_ADDRESS=$STABLE_VAULT_TOKEN_ADDRESS npm run vaults:create",
+    "owner:4:create-growth": "VAULT_NAME=Growth VAULT_RISK_LEVEL=medium VAULT_MIN_APY_BPS=1200 VAULT_MAX_APY_BPS=1800 VAULT_TOKEN_ADDRESS=$GROWTH_VAULT_TOKEN_ADDRESS npm run vaults:create",
+    "owner:5:create-turbo": "VAULT_NAME=Turbo VAULT_RISK_LEVEL=high VAULT_MIN_APY_BPS=2500 VAULT_MAX_APY_BPS=4000 VAULT_TOKEN_ADDRESS=$TURBO_VAULT_TOKEN_ADDRESS npm run vaults:create",
+    "owner:6:status": "npm run vaults:status"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^6.1.0",
+    "@nomicfoundation/hardhat-verify": "^2.0.0",
+    "hardhat": "^2.28.2"
+  },
+  "dependencies": {
+    "@fhenixprotocol/cofhe-contracts": "^0.1.3",
+    "@fhenixprotocol/contracts": "^0.3.1",
+    "@openzeppelin/contracts": "^5.4.0",
+    "axios": "^1.13.2",
+    "dotenv": "^17.2.3",
+    "fhenix-confidential-contracts": "^0.2.1"
+  }
+}

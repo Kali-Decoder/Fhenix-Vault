@@ -1,4 +1,4 @@
-import { getRequiredEnv, getVaultKeeperContract } from "./vaultHelpers";
+import { getRequiredEnv, getVaultKeeperContract } from "./vaultFHEHelpers";
 
 async function main() {
   const vaultId = BigInt(getRequiredEnv("VAULT_ID"));
