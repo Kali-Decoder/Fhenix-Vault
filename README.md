@@ -1,42 +1,35 @@
 # VaultKeeper Platform
 
-VaultKeeper is a multi-vault yield platform on **Base Sepolia** and **Arbitrum Sepolia**.
-It enables users to deposit into risk-segmented vaults, earn token rewards, and manage positions with clear transparency.
+VaultKeeper is a privacy-first DeFi yield platform built on Fhenix FHE. Users deposit into risk-based vaults, earn yield,
+and manage positions while balances, deposits, rewards, and TVL remain encrypted on-chain.
 
 The repository contains:
-- Smart contracts (`VaultKeeper`, `USDT` mock)
+- Smart contracts (`VaultKeeper`, confidential token)
 - Hardhat deployment + owner operation scripts
-- A production-oriented Next.js frontend with separate pages for Vaults, Profile, Admin, and Analytics
+- A Next.js frontend for encrypted vault UX (Vaults, Profile, Admin, Analytics)
 
 ## Why This Product Exists
 
-Most yield products are either:
-- Too opaque for users (unclear APY/reward mechanics), or
-- Too manual for operators (hard to manage vault parameters safely), or
-- Too fragmented (users/admins need different tools)
+Most DeFi platforms are fully transparent, exposing user balances, strategies, and financial behavior. This enables
+copy-trading, privacy risks, and potential exploitation.
 
-VaultKeeper addresses this by providing:
-- Structured vaults by risk profile
-- On-chain APY + deposit/reward accounting
-- Built-in owner controls for lifecycle management
-- A unified frontend for users and admins
+VaultKeeper addresses this by providing confidential DeFi where sensitive data stays private while still enabling
+secure, composable on-chain computation.
 
 ## Product Goals
 
-- Make yield participation straightforward for users
-- Make vault operations controlled and auditable for admins
-- Keep all critical financial actions on-chain
-- Expose real-time operational status (TVL, deposits, rewards, activity)
+- Make yield participation private by default
+- Keep all sensitive data encrypted on-chain
+- Preserve composability and security while hiding values
+- Deliver a strong UX with frontend encryption + decryption
 
 ## Core Features
 
 ### User Features
-- Browse all vaults with risk/APY/TVL/token details
-- Deposit into any active vault (with ERC-20 approval flow)
-- Withdraw deposited tokens
-- View pending rewards per vault
-- Claim rewards from vaults
-- See personal balances, deposits, and share
+- Browse risk-based vaults without exposing user balances
+- Deposit and withdraw with encrypted balances
+- Claim rewards while keeping values private
+- View decrypted balances and rewards in the UI only
 
 ### Admin Features
 - Set platform reward token
@@ -46,11 +39,7 @@ VaultKeeper addresses this by providing:
 - Emergency withdraw for vault operations
 
 ### Product UX Features
-- Dedicated pages (not a single overloaded dashboard):
-  - `/vaults`
-  - `/profile`
-  - `/admin`
-  - `/analytics`
+- Dedicated pages (`/vaults`, `/profile`, `/admin`, `/analytics`)
 - Wallet-aware admin gating (admin actions appear only for owner wallet)
 - Modal-driven transactional actions (deposit/withdraw/claim/admin actions)
 - Success toasts + confetti feedback on successful operations
@@ -61,17 +50,17 @@ VaultKeeper addresses this by providing:
 ### Contracts
 - `contracts/VaultKeeper.sol`
   - Multi-vault storage and lifecycle management
-  - Deposit/withdraw/reward claim logic
+  - Encrypted deposit/withdraw/reward claim logic
   - APY updates, reward token config, vault status control
-- `contracts/USDT.sol`
-  - Mintable ERC-20 mock token for testnet/local testing
+- Confidential token contract
+  - Encrypted ERC-20-style transfers for testnet/local testing
 
 ### Backend/Tooling
 - Hardhat + TypeScript scripts for deployment and owner operations
 - TypeChain bindings for contract interaction safety
 
 ### Frontend
-- Next.js app in `frontend ` directory
+- Next.js app in `client` directory
 - Shared hook-based contract integration (`useVaultKeeper`)
 - Config-driven chain + contract addresses
 
@@ -82,10 +71,11 @@ VaultKeeper addresses this by providing:
    - Risk level (`Low/Medium/High`)
    - APY range (`minAPY`, `maxAPY` in basis points)
    - Deposit token address
-3. User deposits token into selected vault
-4. Yield accrues over time
-5. User claims rewards and/or withdraws principal
-6. Owner can adjust APY or pause vault if needed
+3. Frontend encrypts user inputs
+4. User deposits into selected vault with encrypted values
+5. Yield accrues on encrypted balances
+6. User decrypts rewards/positions client-side
+7. Owner can adjust APY or pause vault if needed
 
 ## Network Configuration
 
@@ -107,7 +97,7 @@ Update these in:
 - `contracts/` smart contracts
 - `scripts/` deployment and owner ops scripts
 - `deployments/` JSON deployment records
-- `frontend /` Next.js app
+- `client/` Next.js app
 - `hardhat.config.ts` network + compiler config
 
 ## Owner Operation Scripts
