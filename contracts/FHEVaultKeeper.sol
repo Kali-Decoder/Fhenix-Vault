@@ -192,6 +192,21 @@ contract VaultKeeper is Ownable {
         return (d.amount, d.timestamp);
     }
 
+    function getUserShare(uint256 vaultId, address user)
+        external returns (euint64)
+    {
+        euint64 userAmount = userDeposits[vaultId][user].amount;
+        euint64 tvl = vaults[vaultId].totalValueLocked;
+
+        ebool isZero = FHE.eq(tvl, FHE.asEuint64(0));
+        euint64 share = FHE.div(
+            FHE.mul(userAmount, FHE.asEuint64(BASIS_POINTS)),
+            tvl
+        );
+
+        return FHE.select(isZero, FHE.asEuint64(0), share);
+    }
+
     function getVaultAPY(uint256 vaultId)
         external view returns (uint256, uint256)
     {
