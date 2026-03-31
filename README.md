@@ -4,7 +4,7 @@ VaultKeeper is a privacy-first DeFi yield platform built on Fhenix FHE. Users de
 and manage positions while balances, deposits, rewards, and TVL remain encrypted on-chain.
 
 The repository contains:
-- Smart contracts (`VaultKeeper`, confidential token)
+- Smart contracts (`FHEVaultKeeper`, `FHEUSDT` confidential token)
 - Hardhat deployment + owner operation scripts
 - A Next.js frontend for encrypted vault UX (Vaults, Profile, Admin, Analytics)
 
@@ -45,15 +45,33 @@ secure, composable on-chain computation.
 - Success toasts + confetti feedback on successful operations
 - Filtering/search/sort in vault listings (name, risk, APR, TVL)
 
+## Fhenix fhEVM + CoFHE Usage (Highlight)
+
+This project relies on Fhenix FHE at every layer. Here is exactly where it shows up:
+
+- On-chain encrypted math and types (`FHE.add`, `FHE.sub`, `euint64`, `ebool`) in `contracts/FHEVaultKeeper.sol`
+- Confidential ERC-20 token built on Fhenix FHERC20 in `contracts/FHEUSDT.sol`
+- CoFHE client initialization in `client/lib/cofhe-client.ts`
+- CoFHE provider wiring in `client/contexts/cofhe-provider.tsx`
+- Encrypt/decrypt helpers used by the app in `client/app/hooks/useCofheClient.ts`
+- Encrypted vault flows and tx handling in `client/app/hooks/useVaultKeeper.ts`
+- Encrypted value rendering in `client/app/components/EncryptedValue.tsx`
+
+## Faucets and Test Funding
+
+- Fhenix fhEVM faucet (external): use it to fund your wallet with test ETH for gas before running scripts or using the UI.
+- In-app FHEUSDT faucet: a local/testnet mint endpoint at `client/app/api/faucet/usdt/route.ts`.
+- UI entry points: “Mint FHE-USDT” buttons in `client/app/vaults/page.tsx` and `client/app/admin/page.tsx`.
+
 ## System Architecture
 
 ### Contracts
-- `contracts/VaultKeeper.sol`
+- `contracts/FHEVaultKeeper.sol`
   - Multi-vault storage and lifecycle management
   - Encrypted deposit/withdraw/reward claim logic
   - APY updates, reward token config, vault status control
-- Confidential token contract
-  - Encrypted ERC-20-style transfers for testnet/local testing
+- `contracts/FHEUSDT.sol`
+  - Fhenix FHERC20-based confidential token for testing
 
 ### Backend/Tooling
 - Hardhat + TypeScript scripts for deployment and owner operations
@@ -90,7 +108,7 @@ Frontend currently points to:
 - `REWARD_TOKEN_ADDRESS=0x1daBC80337bF2d85d496c4eD9cE63a1b16Fbd539`
 
 Update these in:
-- `frontend /app/config/vault_config.ts`
+- `client/app/config/vault_config.ts`
 
 ## Repository Structure
 
@@ -151,7 +169,7 @@ npx hardhat compile
 
 ### Frontend
 ```bash
-cd "frontend "
+cd client
 npm install
 npm run dev
 ```
@@ -168,6 +186,3 @@ Open: `http://localhost:3000`
 ## Product Status
 
 VaultKeeper is structured as a full product stack (contracts + operational scripts + role-aware frontend), not a prototype dashboard.
-# Fhenix-Vault
-# Fhenix-Vault
-# Fhenix-Vault

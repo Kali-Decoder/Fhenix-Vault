@@ -127,7 +127,7 @@ export function useConfidentialVaultData(vaultId?: number, tokenAddress?: string
   const { data: tokenBalanceRaw, isLoading: tokenBalanceLoading } = useReadContract({
     address: (tokenAddress ?? zeroAddress) as `0x${string}`,
     abi: ERC20_ABI as unknown as Abi,
-    functionName: "balanceOf",
+    functionName: "confidentialBalanceOf",
     args: [address ?? zeroAddress],
     query: { enabled: enabled && !!tokenAddress && tokenAddress !== zeroAddress },
   });
@@ -144,6 +144,8 @@ export function useConfidentialVaultData(vaultId?: number, tokenAddress?: string
   const userShare = useDecryptUint64(extractCtHash(userShareRaw), enabled);
   const rewardsClaimed = useDecryptUint64(extractCtHash(rewardsClaimedRaw), enabled);
 
+  const tokenBalance = useDecryptUint64(extractCtHash(tokenBalanceRaw), enabled);
+
   const loading =
     vaultLoading ||
     depositLoading ||
@@ -151,6 +153,7 @@ export function useConfidentialVaultData(vaultId?: number, tokenAddress?: string
     shareLoading ||
     claimedLoading ||
     tokenBalanceLoading ||
+    tokenBalance.decrypting ||
     vaultTvl.decrypting ||
     userDeposit.decrypting ||
     pendingRewards.decrypting ||
@@ -159,7 +162,7 @@ export function useConfidentialVaultData(vaultId?: number, tokenAddress?: string
 
   return {
     loading,
-    tokenBalance: (tokenBalanceRaw as bigint | undefined) ?? null,
+    tokenBalance: tokenBalance.value,
     vaultTvl,
     userDeposit,
     pendingRewards,

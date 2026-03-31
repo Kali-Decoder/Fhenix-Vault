@@ -86,7 +86,7 @@ function getVaultField<T>(vaultRaw: unknown, key: string, index: number, fallbac
 
 export function useVaultKeeper() {
   const { showError, showInfo, showSuccess } = useToastContext();
-  const { decryptUint64, encryptUint64 } = useCofheClient();
+  const { decryptUint64, encryptUint64, connected: cofheConnected } = useCofheClient();
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
   const { connectAsync, connectors } = useConnect();
@@ -207,24 +207,37 @@ export function useVaultKeeper() {
         let userTokenBalance = ZERO;
 
         if (tokenAddress !== ZERO_ADDRESS) {
-          const [symbol, walletBal] = await Promise.all([
+          const [symbol, decimals, walletBalCt] = await Promise.all([
             publicClient.readContract({
               address: tokenAddress as `0x${string}`,
               abi: ERC20_ABI as unknown as Abi,
               functionName: "symbol",
             }) as Promise<string>,
+            publicClient.readContract({
+              address: tokenAddress as `0x${string}`,
+              abi: ERC20_ABI as unknown as Abi,
+              functionName: "decimals",
+            }) as Promise<number>,
             account
               ? (publicClient.readContract({
                   address: tokenAddress as `0x${string}`,
                   abi: ERC20_ABI as unknown as Abi,
-                  functionName: "balanceOf",
+                  functionName: "confidentialBalanceOf",
                   args: [account as `0x${string}`],
-                }) as Promise<bigint>)
-              : Promise.resolve(ZERO),
+                }) as Promise<string>)
+              : Promise.resolve(ZERO_CT_HASH),
           ]);
 
           tokenSymbol = symbol;
-          userTokenBalance = walletBal;
+          tokenDecimals = decimals;
+
+          if (account && cofheConnected && walletBalCt && walletBalCt !== ZERO_CT_HASH) {
+            try {
+              userTokenBalance = await decryptUint64(walletBalCt as `0x${string}`);
+            } catch {
+              userTokenBalance = ZERO;
+            }
+          }
         }
 
         let userDeposit = ZERO_CT_HASH;
@@ -291,7 +304,7 @@ export function useVaultKeeper() {
     } finally {
       setIsRefreshing(false);
     }
-  }, [account, publicClient, readNonView, selectedVaultId, showError]);
+  }, [account, cofheConnected, decryptUint64, publicClient, readNonView, selectedVaultId, showError]);
 
   useEffect(() => {
     refreshAll();

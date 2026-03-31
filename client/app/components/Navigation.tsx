@@ -1,27 +1,53 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { Layers3 } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { useAccount, useConnect, useDisconnect } from "wagmi";
-import { getChainById, getDefaultChain, getDefaultChainId, popularChains } from "../config/chains";
-import { VAULT_KEEPER_ADDRESS } from "../config/vault_config";
+import { formatUnits } from "viem";
+import { arbSepolia, getChainById, getDefaultChain, getDefaultChainId, popularChains } from "../config/chains";
+import { REWARD_TOKEN_ADDRESS, VAULT_KEEPER_ADDRESS } from "../config/vault_config";
 import { useToastContext } from "../contexts/ToastContext";
 import { useCofheClient } from "../hooks/useCofheClient";
+import { useConfidentialTokenBalance } from "../hooks/useConfidentialTokenBalance";
 
 export function Navigation() {
   const pathname = usePathname();
   const { showError, showInfo } = useToastContext();
   const { connected: cofheConnected, connecting: cofheConnecting, ensurePermitReady } = useCofheClient();
-  const { isConnected } = useAccount();
+  const { symbol, decimals, balance, loading: balanceLoading } = useConfidentialTokenBalance(REWARD_TOKEN_ADDRESS);
+  const { isConnected, address } = useAccount();
   const { connectAsync, connectors, isPending: isConnecting } = useConnect();
   const { disconnect } = useDisconnect();
   const defaultChainId = useMemo(() => getDefaultChainId(), []);
   const [activeChainId, setActiveChainId] = useState<number>(defaultChainId);
   const [isPermitLoading, setIsPermitLoading] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const profileRef = useRef<HTMLDivElement | null>(null);
+  const profileMobileRef = useRef<HTMLDivElement | null>(null);
   const explorerBase =
     getChainById(activeChainId)?.blockExplorers?.default.url ?? getDefaultChain().blockExplorers?.default.url ?? "";
+  const activeChainName = getChainById(activeChainId)?.name ?? getDefaultChain().name;
+  const formattedBalance =
+    balance.value !== null ? Number(formatUnits(balance.value, decimals)).toLocaleString(undefined, {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 4,
+    }) : "--";
+  const statusLabel = cofheConnected ? "Connected" : cofheConnecting ? "Connecting" : "Offline";
+
+  useEffect(() => {
+    if (!profileOpen) return;
+    const onClick = (event: MouseEvent) => {
+      const inDesktop = profileRef.current?.contains(event.target as Node);
+      const inMobile = profileMobileRef.current?.contains(event.target as Node);
+      if (!inDesktop && !inMobile) {
+        setProfileOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onClick);
+    return () => document.removeEventListener("mousedown", onClick);
+  }, [profileOpen]);
   const navItems = [
     { href: "/vaults", label: "Vaults" },
     { href: "/profile", label: "Profile" },
@@ -165,60 +191,87 @@ export function Navigation() {
               </Link>
             );
           })}
-          <a
-            href={`${explorerBase}/address/${VAULT_KEEPER_ADDRESS}`}
-            target="_blank"
-            rel="noreferrer"
-            className="rounded-lg border border-zinc-700 px-3 py-2 text-xs text-zinc-300 hover:border-zinc-500 hover:text-white"
-          >
-            View Contract
-          </a>
-          <label className="sr-only" htmlFor="chain-switch">
-            Switch network
-          </label>
-          <select
-            id="chain-switch"
-            value={activeChainId}
-            onChange={(event) => handleChainChange(Number(event.target.value))}
-            className="rounded-lg border border-zinc-700 bg-black px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-zinc-200 hover:border-zinc-500 focus:outline-none focus:border-white"
-          >
-            {popularChains.map((chain) => (
-              <option key={chain.id} value={chain.id}>
-                {chain.name}
-              </option>
-            ))}
-          </select>
-          <div className="inline-flex items-center gap-2 rounded-lg border border-zinc-700 bg-black px-3 py-2 text-xs uppercase tracking-[0.12em] text-zinc-200">
-            <span className={cofheConnected ? "text-white" : cofheConnecting ? "text-zinc-400" : "text-zinc-500"}>
-              CoFHE: {cofheConnected ? "Connected" : cofheConnecting ? "Connecting" : "Offline"}
-            </span>
-          </div>
-          <button
-            type="button"
-            onClick={handlePermit}
-            disabled={!cofheConnected || isPermitLoading}
-            className="rounded-lg border border-zinc-700 bg-black px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-zinc-200 hover:border-zinc-500 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {isPermitLoading ? "Permit..." : "Permit"}
-          </button>
-          {isConnected ? (
+          {/* Profile dropdown holds wallet stats + actions */}
+          <div className="relative" ref={profileRef}>
             <button
               type="button"
-              onClick={handleDisconnect}
+              onClick={() => setProfileOpen((open) => !open)}
               className="rounded-lg border border-zinc-700 bg-black px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-zinc-200 hover:border-zinc-500"
             >
-              Disconnect
+              Profile
             </button>
-          ) : (
-            <button
-              type="button"
-              onClick={handleConnect}
-              disabled={isConnecting}
-              className="rounded-lg bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-black hover:bg-zinc-200 disabled:opacity-60"
-            >
-              {isConnecting ? "Connecting..." : "Connect Wallet"}
-            </button>
-          )}
+            {profileOpen ? (
+              <div
+                className="absolute right-0 mt-2 w-72 rounded-xl border border-zinc-800 bg-black/95 p-3 text-xs text-zinc-200 shadow-xl"
+                onMouseDown={(event) => event.stopPropagation()}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-zinc-400">Address</span>
+                  <span className="text-white">{isConnected ? "Connected" : "Disconnected"}</span>
+                </div>
+                <div className="mt-1 break-all text-[11px] text-zinc-400">
+                  {address ?? "No wallet connected"}
+                </div>
+                <div className="mt-2 flex items-center justify-between">
+                  <span className="text-zinc-400">Network</span>
+                  <span className="text-white">{activeChainName}</span>
+                </div>
+
+                <div className="mt-3 flex items-center justify-between">
+                  <span className="text-zinc-400">CoFHE</span>
+                  <span className={cofheConnected ? "text-white" : "text-zinc-500"}>{statusLabel}</span>
+                </div>
+                <div className="mt-2 flex items-center justify-between">
+                  <span className="text-zinc-400">{symbol} Balance</span>
+                  <span className="text-white">{balanceLoading ? "Loading" : formattedBalance}</span>
+                </div>
+
+                <div className="mt-3 grid gap-2">
+                  <button
+                    type="button"
+                    onClick={handlePermit}
+                    disabled={!cofheConnected || isPermitLoading}
+                    className="w-full rounded-lg border border-zinc-700 bg-black px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-zinc-200 hover:border-zinc-500 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {isPermitLoading ? "Permit..." : "Permit"}
+                  </button>
+                  <a
+                    href={`${explorerBase}/address/${VAULT_KEEPER_ADDRESS}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="w-full rounded-lg border border-zinc-700 px-3 py-2 text-center text-xs font-semibold uppercase tracking-[0.12em] text-zinc-200 hover:border-zinc-500"
+                  >
+                    View Contract
+                  </a>
+                  <button
+                    type="button"
+                    onClick={() => handleChainChange(arbSepolia.id)}
+                    className="w-full rounded-lg border border-zinc-700 bg-black px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-zinc-200 hover:border-zinc-500"
+                  >
+                    Switch to Arbitrum
+                  </button>
+                  {isConnected ? (
+                    <button
+                      type="button"
+                      onClick={handleDisconnect}
+                      className="w-full rounded-lg border border-zinc-700 bg-black px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-zinc-200 hover:border-zinc-500"
+                    >
+                      Disconnect
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleConnect}
+                      disabled={isConnecting}
+                      className="w-full rounded-lg bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-black hover:bg-zinc-200 disabled:opacity-60"
+                    >
+                      {isConnecting ? "Connecting..." : "Connect Wallet"}
+                    </button>
+                  )}
+                </div>
+              </div>
+            ) : null}
+          </div>
         </div>
       </div>
       <div className="mx-auto flex w-full max-w-6xl gap-2 overflow-x-auto px-4 pb-3 md:hidden">
@@ -251,37 +304,86 @@ export function Navigation() {
             </option>
           ))}
         </select>
-        <div className="shrink-0 inline-flex items-center gap-2 rounded-lg border border-zinc-700 bg-black px-3 py-2 text-xs uppercase tracking-[0.12em] text-zinc-200">
-          <span className={cofheConnected ? "text-white" : cofheConnecting ? "text-zinc-400" : "text-zinc-500"}>
-            CoFHE: {cofheConnected ? "Connected" : cofheConnecting ? "Connecting" : "Offline"}
-          </span>
-        </div>
-        <button
-          type="button"
-          onClick={handlePermit}
-          disabled={!cofheConnected || isPermitLoading}
-          className="shrink-0 rounded-lg border border-zinc-700 bg-black px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-zinc-200 hover:border-zinc-500 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {isPermitLoading ? "Permit..." : "Permit"}
-        </button>
-        {isConnected ? (
+        <div className="relative" ref={profileMobileRef}>
           <button
             type="button"
-            onClick={handleDisconnect}
+            onClick={() => setProfileOpen((open) => !open)}
             className="shrink-0 rounded-lg border border-zinc-700 bg-black px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-zinc-200 hover:border-zinc-500"
           >
-            Disconnect
+            Profile
           </button>
-        ) : (
-          <button
-            type="button"
-            onClick={handleConnect}
-            disabled={isConnecting}
-            className="shrink-0 rounded-lg bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-black hover:bg-zinc-200 disabled:opacity-60"
-          >
-            {isConnecting ? "Connecting..." : "Connect Wallet"}
-          </button>
-        )}
+          {profileOpen ? (
+            <div
+              className="absolute right-0 mt-2 w-72 rounded-xl border border-zinc-800 bg-black/95 p-3 text-xs text-zinc-200 shadow-xl"
+              onMouseDown={(event) => event.stopPropagation()}
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-zinc-400">Address</span>
+                <span className="text-white">{isConnected ? "Connected" : "Disconnected"}</span>
+              </div>
+              <div className="mt-1 break-all text-[11px] text-zinc-400">
+                {address ?? "No wallet connected"}
+              </div>
+              <div className="mt-2 flex items-center justify-between">
+                <span className="text-zinc-400">Network</span>
+                <span className="text-white">{activeChainName}</span>
+              </div>
+
+              <div className="mt-3 flex items-center justify-between">
+                <span className="text-zinc-400">CoFHE</span>
+                <span className={cofheConnected ? "text-white" : "text-zinc-500"}>{statusLabel}</span>
+              </div>
+              <div className="mt-2 flex items-center justify-between">
+                <span className="text-zinc-400">{symbol} Balance</span>
+                <span className="text-white">{balanceLoading ? "Loading" : formattedBalance}</span>
+              </div>
+
+              <div className="mt-3 grid gap-2">
+                <button
+                  type="button"
+                  onClick={handlePermit}
+                  disabled={!cofheConnected || isPermitLoading}
+                  className="w-full rounded-lg border border-zinc-700 bg-black px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-zinc-200 hover:border-zinc-500 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {isPermitLoading ? "Permit..." : "Permit"}
+                </button>
+                <a
+                  href={`${explorerBase}/address/${VAULT_KEEPER_ADDRESS}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="w-full rounded-lg border border-zinc-700 px-3 py-2 text-center text-xs font-semibold uppercase tracking-[0.12em] text-zinc-200 hover:border-zinc-500"
+                >
+                  View Contract
+                </a>
+                <button
+                  type="button"
+                  onClick={() => handleChainChange(arbSepolia.id)}
+                  className="w-full rounded-lg border border-zinc-700 bg-black px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-zinc-200 hover:border-zinc-500"
+                >
+                  Switch to Arbitrum
+                </button>
+                {isConnected ? (
+                  <button
+                    type="button"
+                    onClick={handleDisconnect}
+                    className="w-full rounded-lg border border-zinc-700 bg-black px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-zinc-200 hover:border-zinc-500"
+                  >
+                    Disconnect
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleConnect}
+                    disabled={isConnecting}
+                    className="w-full rounded-lg bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-black hover:bg-zinc-200 disabled:opacity-60"
+                  >
+                    {isConnecting ? "Connecting..." : "Connect Wallet"}
+                  </button>
+                )}
+              </div>
+            </div>
+          ) : null}
+        </div>
       </div>
     </nav>
   );

@@ -40,6 +40,7 @@
     "@fhenixprotocol/contracts": "^0.3.1",
     "@openzeppelin/contracts": "^5.4.0",
     "axios": "^1.13.2",
+    "cofhejs": "^0.3.1",
     "dotenv": "^17.2.3",
     "fhenix-confidential-contracts": "^0.2.1"
   }
