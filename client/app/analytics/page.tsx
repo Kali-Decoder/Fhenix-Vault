@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { ethers } from "ethers";
 import {
   CartesianGrid,
@@ -18,49 +18,113 @@ import {
   riskName,
   useVaultKeeper,
 } from "../hooks/useVaultKeeper";
+import { EncryptedValue } from "../components/EncryptedValue";
+import { RevealValue } from "../components/RevealValue";
+import { useCofheClient } from "../hooks/useCofheClient";
 
 export default function AnalyticsPage() {
-  const { vaults, stats } = useVaultKeeper();
+  const { vaults, stats, isConnected, isCorrectNetwork } = useVaultKeeper();
+  const { decryptUint64 } = useCofheClient();
+  const [tvlDisplay, setTvlDisplay] = useState<string>("••••");
+  const [decryptedChartData, setDecryptedChartData] = useState<
+    Array<{
+      name: string;
+      vaultName: string;
+      tvl: number;
+      minApy: number;
+      maxApy: number;
+      depositors: number;
+    }>
+  >([]);
 
   const totals = useMemo(() => {
-    const totalTvlRaw = vaults.reduce((acc, v) => acc + v.totalValueLocked, BigInt(0));
     const totalDepositors = vaults.reduce((acc, v) => acc + Number(v.depositorCount), 0);
     const activeVaults = vaults.filter((v) => v.active).length;
-    const byToken = new Map<string, { amount: bigint; decimals: number; symbol: string }>();
+    const byToken = new Map<string, { ctHashes: string[]; decimals: number; symbol: string }>();
 
     for (const vault of vaults) {
       const key = `${vault.tokenSymbol}-${vault.tokenDecimals}`;
       const prev = byToken.get(key);
       if (prev) {
-        prev.amount += vault.totalValueLocked;
+        prev.ctHashes.push(vault.totalValueLocked);
       } else {
         byToken.set(key, {
-          amount: vault.totalValueLocked,
+          ctHashes: [vault.totalValueLocked],
           decimals: vault.tokenDecimals,
           symbol: vault.tokenSymbol,
         });
       }
     }
 
-    const parsedTvlDisplay = Array.from(byToken.values())
-      .map((entry) => `${formatToken(entry.amount, entry.decimals)} ${entry.symbol}`)
-      .join(" + ");
-
-    return { totalTvlRaw, totalDepositors, activeVaults, parsedTvlDisplay };
+    return { totalDepositors, activeVaults, byToken };
   }, [vaults]);
 
-  const chartData = useMemo(
-    () =>
-      vaults.map((vault) => ({
-        name: `${vault.id}-${vault.name}`,
-        vaultName: `#${vault.id} ${vault.name}`,
-        tvl: Number(ethers.formatUnits(vault.totalValueLocked, vault.tokenDecimals)),
-        minApy: Number(vault.minAPY) / 100,
-        maxApy: Number(vault.maxAPY) / 100,
-        depositors: Number(vault.depositorCount),
-      })),
-    [vaults]
-  );
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadTotals = async () => {
+      if (!vaults.length || !isConnected || !isCorrectNetwork) {
+        if (!cancelled) setTvlDisplay("0");
+        return;
+      }
+      try {
+        const entries = Array.from(totals.byToken.values());
+        const parts = await Promise.all(
+          entries.map(async (entry) => {
+            let sum = 0n;
+            for (const ctHash of entry.ctHashes) {
+              const value = await decryptUint64(ctHash);
+              sum += value;
+            }
+            return `${formatToken(sum, entry.decimals)} ${entry.symbol}`;
+          })
+        );
+        if (!cancelled) {
+          setTvlDisplay(parts.filter(Boolean).join(" + ") || "0");
+        }
+      } catch {
+        if (!cancelled) setTvlDisplay("••••");
+      }
+    };
+
+    loadTotals();
+    return () => {
+      cancelled = true;
+    };
+  }, [decryptUint64, isConnected, isCorrectNetwork, totals.byToken, vaults.length]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadChartData = async () => {
+      if (vaults.length === 0 || !isConnected || !isCorrectNetwork) {
+        if (!cancelled) setDecryptedChartData([]);
+        return;
+      }
+      try {
+        const next = await Promise.all(
+          vaults.map(async (vault) => {
+            const tvlPlain = await decryptUint64(vault.totalValueLocked);
+            return {
+              name: `${vault.id}-${vault.name}`,
+              vaultName: `#${vault.id} ${vault.name}`,
+              tvl: Number(ethers.formatUnits(tvlPlain, vault.tokenDecimals)),
+              minApy: Number(vault.minAPY) / 100,
+              maxApy: Number(vault.maxAPY) / 100,
+              depositors: Number(vault.depositorCount),
+            };
+          })
+        );
+        if (!cancelled) setDecryptedChartData(next);
+      } catch {
+        if (!cancelled) setDecryptedChartData([]);
+      }
+    };
+
+    loadChartData();
+    return () => {
+      cancelled = true;
+    };
+  }, [decryptUint64, isConnected, isCorrectNetwork, vaults]);
 
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 sm:py-10">
@@ -73,13 +137,13 @@ export default function AnalyticsPage() {
         <StatCard label="Vault Count" value={stats.vaultCount.toString()} />
         <StatCard label="Active Vaults" value={String(totals.activeVaults)} />
         <StatCard label="Total Depositor Count" value={String(totals.totalDepositors)} />
-        <StatCard label="Total TVL" value={totals.parsedTvlDisplay || "0"} />
+        <StatCard label="Total TVL" value={<RevealValue value={tvlDisplay || "0"} />} />
       </section>
 
       <section className="mt-6 grid gap-4 md:grid-cols-2">
         <ChartCard title="TVL by Vault">
           <ResponsiveContainer width="100%" height={240}>
-            <LineChart data={chartData}>
+            <LineChart data={decryptedChartData}>
               <CartesianGrid stroke="#27272a" strokeDasharray="3 3" />
               <XAxis dataKey="name" stroke="#a1a1aa" />
               <YAxis stroke="#a1a1aa" />
@@ -92,7 +156,7 @@ export default function AnalyticsPage() {
 
         <ChartCard title="APY by Vault">
           <ResponsiveContainer width="100%" height={240}>
-            <LineChart data={chartData}>
+            <LineChart data={decryptedChartData}>
               <CartesianGrid stroke="#27272a" strokeDasharray="3 3" />
               <XAxis dataKey="name" stroke="#a1a1aa" />
               <YAxis stroke="#a1a1aa" />
@@ -106,7 +170,7 @@ export default function AnalyticsPage() {
 
         <ChartCard title="Depositors by Vault">
           <ResponsiveContainer width="100%" height={240}>
-            <LineChart data={chartData}>
+            <LineChart data={decryptedChartData}>
               <CartesianGrid stroke="#27272a" strokeDasharray="3 3" />
               <XAxis dataKey="name" stroke="#a1a1aa" />
               <YAxis stroke="#a1a1aa" />
@@ -155,7 +219,11 @@ export default function AnalyticsPage() {
                     </td>
                     <td className="px-3 py-3">{vault.tokenSymbol}</td>
                     <td className="px-3 py-3 text-monad-purple">
-                      {formatToken(vault.totalValueLocked, vault.tokenDecimals)} {vault.tokenSymbol}
+                      <EncryptedValue
+                        ctHash={vault.totalValueLocked}
+                        decimals={vault.tokenDecimals}
+                        suffix={vault.tokenSymbol}
+                      />
                     </td>
                     <td className="px-3 py-3 text-monad-purple">{vault.depositorCount.toString()}</td>
                     <td className="px-3 py-3">
@@ -174,7 +242,7 @@ export default function AnalyticsPage() {
   );
 }
 
-function StatCard({ label, value }: { label: string; value: string }) {
+function StatCard({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="rounded-xl border border-card-border bg-card/80 p-4">
       <p className="text-xs uppercase tracking-[0.18em] text-zinc-400">{label}</p>
@@ -183,7 +251,7 @@ function StatCard({ label, value }: { label: string; value: string }) {
   );
 }
 
-function ChartCard({ title, children }: { title: string; children: React.ReactNode }) {
+function ChartCard({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div className="rounded-2xl border border-card-border bg-card/80 p-4">
       <h2 className="text-sm font-semibold uppercase tracking-[0.15em] text-zinc-300">{title}</h2>

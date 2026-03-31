@@ -1,16 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ethers } from "ethers";
+import { formatUnits, parseUnits, type Abi } from "viem";
+import { useAccount, useChainId, useConnect, usePublicClient, useSwitchChain, useWriteContract } from "wagmi";
 import { allChains, getChainById, getDefaultChain } from "../config/chains";
 import { ERC20_ABI, REWARD_TOKEN_ADDRESS, VAULT_KEEPER_ABI, VAULT_KEEPER_ADDRESS } from "../config/vault_config";
 import { useToastContext } from "../contexts/ToastContext";
-
-export type Eip1193Provider = {
-  request: (args: { method: string; params?: unknown[] }) => Promise<unknown>;
-  on: (event: string, cb: (...args: unknown[]) => void) => void;
-  removeListener: (event: string, cb: (...args: unknown[]) => void) => void;
-};
+import { useCofheClient } from "./useCofheClient";
 
 export type ContractStats = {
   owner: string;
@@ -24,21 +20,23 @@ export type VaultData = {
   riskLevel: number;
   minAPY: bigint;
   maxAPY: bigint;
-  totalValueLocked: bigint;
+  totalValueLocked: string;
   tokenAddress: string;
   active: boolean;
   depositorCount: bigint;
   tokenSymbol: string;
   tokenDecimals: number;
-  userDeposit: bigint;
-  userPendingRewards: bigint;
-  userRewardsClaimed: bigint;
-  userShareBps: bigint;
+  userDeposit: string;
+  userPendingRewards: string;
+  userRewardsClaimed: string;
+  userShareBps: string;
   userTokenBalance: bigint;
 };
 
-const ZERO = BigInt(0);
+const ZERO = 0n;
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
+const ZERO_CT_HASH = "0x0000000000000000000000000000000000000000000000000000000000000000";
+const DEFAULT_TOKEN_DECIMALS = 6;
 
 const EMPTY_STATS: ContractStats = {
   owner: "",
@@ -53,7 +51,7 @@ export function shortAddress(value: string) {
 
 export function formatToken(value: bigint, decimals: number, digits = 4) {
   try {
-    const parsed = Number(ethers.formatUnits(value, decimals));
+    const parsed = Number(formatUnits(value, decimals));
     if (!Number.isFinite(parsed)) return "0";
     return parsed.toLocaleString(undefined, {
       minimumFractionDigits: 0,
@@ -76,27 +74,40 @@ export function riskName(risk: number) {
   return `Unknown (${risk})`;
 }
 
+function getVaultField<T>(vaultRaw: unknown, key: string, index: number, fallback: T): T {
+  if (vaultRaw && typeof vaultRaw === "object" && key in (vaultRaw as Record<string, unknown>)) {
+    return (vaultRaw as Record<string, T>)[key];
+  }
+  if (Array.isArray(vaultRaw) && typeof vaultRaw[index] !== "undefined") {
+    return vaultRaw[index] as T;
+  }
+  return fallback;
+}
+
 export function useVaultKeeper() {
   const { showError, showInfo, showSuccess } = useToastContext();
+  const { decryptUint64, encryptUint64 } = useCofheClient();
+  const { address, isConnected } = useAccount();
+  const chainId = useChainId();
+  const { connectAsync, connectors } = useConnect();
+  const { switchChainAsync } = useSwitchChain();
+  const publicClient = usePublicClient();
+  const { writeContractAsync } = useWriteContract();
 
-  const [account, setAccount] = useState("");
-  const [isConnected, setIsConnected] = useState(false);
-  const [chainId, setChainId] = useState<number | null>(null);
   const [stats, setStats] = useState<ContractStats>(EMPTY_STATS);
   const [vaults, setVaults] = useState<VaultData[]>([]);
   const [selectedVaultId, setSelectedVaultId] = useState<number>(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const ethereum =
-    typeof window !== "undefined" ? ((window as Window & { ethereum?: Eip1193Provider }).ethereum ?? null) : null;
+  const account = address ?? "";
 
   const defaultChain = useMemo(() => getDefaultChain(), []);
   const activeChain = useMemo(
     () => (chainId ? getChainById(chainId) ?? defaultChain : defaultChain),
     [chainId, defaultChain]
   );
-  const isCorrectNetwork = chainId !== null && !!getChainById(chainId);
+  const isCorrectNetwork = !!chainId && !!getChainById(chainId);
   const isAdmin = !!account && !!stats.owner && account.toLowerCase() === stats.owner.toLowerCase();
   const explorerBase = activeChain?.blockExplorers?.default.url ?? defaultChain.blockExplorers?.default.url ?? "";
   const supportedNetworksLabel = allChains.map((chain) => chain.name).join(" or ");
@@ -107,87 +118,66 @@ export function useVaultKeeper() {
   );
 
   const connectWallet = useCallback(async () => {
-    if (!ethereum) {
-      showError("Install MetaMask or another EVM wallet.");
+    const connector = connectors[0];
+    if (!connector) {
+      showError("Wallet connector not available.");
       return;
     }
-
     try {
-      const accounts = (await ethereum.request({ method: "eth_requestAccounts" })) as string[];
-      if (accounts.length > 0) {
-        setAccount(accounts[0]);
-        setIsConnected(true);
-      }
+      await connectAsync({ connector });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Wallet connection failed.";
       showError(message);
     }
-  }, [ethereum, showError]);
+  }, [connectAsync, connectors, showError]);
 
   const switchToDefaultNetwork = useCallback(async () => {
-    if (!ethereum) {
-      showError("Wallet provider not available.");
-      return;
-    }
-
-    const chainHex = `0x${defaultChain.id.toString(16)}`;
     try {
-      await ethereum.request({ method: "wallet_switchEthereumChain", params: [{ chainId: chainHex }] });
-    } catch (switchError) {
-      const err = switchError as { code?: number };
-      if (err.code !== 4902) {
-        const message = switchError instanceof Error ? switchError.message : "Network switch failed.";
-        showError(message);
-        return;
-      }
+      await switchChainAsync({ chainId: defaultChain.id });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Network switch failed.";
+      showError(message);
+    }
+  }, [defaultChain.id, showError, switchChainAsync]);
 
-      await ethereum.request({
-        method: "wallet_addEthereumChain",
-        params: [
-          {
-            chainId: chainHex,
-            chainName: defaultChain.name,
-            nativeCurrency: defaultChain.nativeCurrency,
-            rpcUrls: defaultChain.rpcUrls.default.http,
-            blockExplorerUrls: [explorerBase],
-          },
-        ],
+  const readNonView = useCallback(
+    async (functionName: string, args: readonly unknown[]) => {
+      if (!publicClient) {
+        throw new Error("Public client unavailable.");
+      }
+      const { result } = await publicClient.simulateContract({
+        address: VAULT_KEEPER_ADDRESS as `0x${string}`,
+        abi: VAULT_KEEPER_ABI as unknown as Abi,
+        functionName,
+        args,
+        account: (account || ZERO_ADDRESS) as `0x${string}`,
       });
-    }
-  }, [defaultChain, ethereum, explorerBase, showError]);
-
-  const loadWalletState = useCallback(async () => {
-    if (!ethereum) return;
-
-    try {
-      const accounts = (await ethereum.request({ method: "eth_accounts" })) as string[];
-      const chainHex = (await ethereum.request({ method: "eth_chainId" })) as string;
-      setChainId(Number.parseInt(chainHex, 16));
-
-      if (accounts.length > 0) {
-        setAccount(accounts[0]);
-        setIsConnected(true);
-      } else {
-        setAccount("");
-        setIsConnected(false);
-      }
-    } catch {
-      showError("Unable to read wallet state.");
-    }
-  }, [ethereum, showError]);
+      return result as string;
+    },
+    [account, publicClient]
+  );
 
   const refreshAll = useCallback(async () => {
-    if (!ethereum) return;
+    if (!publicClient) return;
 
     setIsRefreshing(true);
     try {
-      const provider = new ethers.BrowserProvider(ethereum as ethers.Eip1193Provider);
-      const vaultKeeper = new ethers.Contract(VAULT_KEEPER_ADDRESS, VAULT_KEEPER_ABI, provider);
-
       const [owner, rewardToken, vaultCount] = await Promise.all([
-        vaultKeeper.owner() as Promise<string>,
-        vaultKeeper.rewardToken() as Promise<string>,
-        vaultKeeper.vaultCount() as Promise<bigint>,
+        publicClient.readContract({
+          address: VAULT_KEEPER_ADDRESS as `0x${string}`,
+          abi: VAULT_KEEPER_ABI as unknown as Abi,
+          functionName: "owner",
+        }) as Promise<string>,
+        publicClient.readContract({
+          address: VAULT_KEEPER_ADDRESS as `0x${string}`,
+          abi: VAULT_KEEPER_ABI as unknown as Abi,
+          functionName: "rewardToken",
+        }) as Promise<string>,
+        publicClient.readContract({
+          address: VAULT_KEEPER_ADDRESS as `0x${string}`,
+          abi: VAULT_KEEPER_ABI as unknown as Abi,
+          functionName: "vaultCount",
+        }) as Promise<bigint>,
       ]);
 
       setStats({ owner, rewardToken, vaultCount });
@@ -197,48 +187,74 @@ export function useVaultKeeper() {
 
       for (let i = 0; i < count; i++) {
         const [vaultRaw, depositorCount] = await Promise.all([
-          vaultKeeper.vaults(i) as Promise<{
-            name: string;
-            riskLevel: bigint;
-            minAPY: bigint;
-            maxAPY: bigint;
-            totalValueLocked: bigint;
-            tokenAddress: string;
-            active: boolean;
-          }>,
-          vaultKeeper.getDepositorCount(i) as Promise<bigint>,
+          publicClient.readContract({
+            address: VAULT_KEEPER_ADDRESS as `0x${string}`,
+            abi: VAULT_KEEPER_ABI as unknown as Abi,
+            functionName: "vaults",
+            args: [BigInt(i)],
+          }) as Promise<unknown>,
+          publicClient.readContract({
+            address: VAULT_KEEPER_ADDRESS as `0x${string}`,
+            abi: VAULT_KEEPER_ABI as unknown as Abi,
+            functionName: "getDepositorCount",
+            args: [BigInt(i)],
+          }) as Promise<bigint>,
         ]);
 
+        const tokenAddress = getVaultField<string>(vaultRaw, "tokenAddress", 5, ZERO_ADDRESS);
         let tokenSymbol = "TOKEN";
-        let tokenDecimals = 18;
+        let tokenDecimals = DEFAULT_TOKEN_DECIMALS;
         let userTokenBalance = ZERO;
 
-        if (vaultRaw.tokenAddress !== ZERO_ADDRESS) {
-          const token = new ethers.Contract(vaultRaw.tokenAddress, ERC20_ABI, provider);
-          const [symbol, decimals, walletBal] = await Promise.all([
-            token.symbol() as Promise<string>,
-            token.decimals() as Promise<number>,
-            account ? (token.balanceOf(account) as Promise<bigint>) : Promise.resolve(ZERO),
+        if (tokenAddress !== ZERO_ADDRESS) {
+          const [symbol, walletBal] = await Promise.all([
+            publicClient.readContract({
+              address: tokenAddress as `0x${string}`,
+              abi: ERC20_ABI as unknown as Abi,
+              functionName: "symbol",
+            }) as Promise<string>,
+            account
+              ? (publicClient.readContract({
+                  address: tokenAddress as `0x${string}`,
+                  abi: ERC20_ABI as unknown as Abi,
+                  functionName: "balanceOf",
+                  args: [account as `0x${string}`],
+                }) as Promise<bigint>)
+              : Promise.resolve(ZERO),
           ]);
 
           tokenSymbol = symbol;
-          tokenDecimals = Number(decimals);
           userTokenBalance = walletBal;
         }
 
-        let userDeposit = ZERO;
-        let userPendingRewards = ZERO;
-        let userShareBps = ZERO;
-        let userRewardsClaimed = ZERO;
+        let userDeposit = ZERO_CT_HASH;
+        let userPendingRewards = ZERO_CT_HASH;
+        let userShareBps = ZERO_CT_HASH;
+        let userRewardsClaimed = ZERO_CT_HASH;
 
         if (account) {
           const [userDepositData, pendingRewards, shareBps, claimedRewards] = await Promise.all([
-            vaultKeeper.userDeposits(i, account) as Promise<{ amount: bigint; timestamp: bigint }>,
-            vaultKeeper.getPendingRewards(i, account) as Promise<bigint>,
-            vaultKeeper.getUserShare(i, account) as Promise<bigint>,
-            vaultKeeper.rewardsClaimed(i, account) as Promise<bigint>,
+            publicClient.readContract({
+              address: VAULT_KEEPER_ADDRESS as `0x${string}`,
+              abi: VAULT_KEEPER_ABI as unknown as Abi,
+              functionName: "getUserDeposit",
+              args: [BigInt(i), account as `0x${string}`],
+            }) as Promise<unknown>,
+            readNonView("getPendingRewards", [BigInt(i), account as `0x${string}`]),
+            readNonView("getUserShare", [BigInt(i), account as `0x${string}`]),
+            publicClient.readContract({
+              address: VAULT_KEEPER_ADDRESS as `0x${string}`,
+              abi: VAULT_KEEPER_ABI as unknown as Abi,
+              functionName: "rewardsClaimed",
+              args: [BigInt(i), account as `0x${string}`],
+            }) as Promise<string>,
           ]);
-          userDeposit = userDepositData.amount;
+
+          if (Array.isArray(userDepositData)) {
+            userDeposit = (userDepositData[0] as string) ?? ZERO_CT_HASH;
+          } else if (userDepositData && typeof userDepositData === "object" && "amount" in userDepositData) {
+            userDeposit = (userDepositData as { amount: string }).amount ?? ZERO_CT_HASH;
+          }
           userPendingRewards = pendingRewards;
           userShareBps = shareBps;
           userRewardsClaimed = claimedRewards;
@@ -246,13 +262,13 @@ export function useVaultKeeper() {
 
         nextVaults.push({
           id: i,
-          name: vaultRaw.name,
-          riskLevel: Number(vaultRaw.riskLevel),
-          minAPY: vaultRaw.minAPY,
-          maxAPY: vaultRaw.maxAPY,
-          totalValueLocked: vaultRaw.totalValueLocked,
-          tokenAddress: vaultRaw.tokenAddress,
-          active: vaultRaw.active,
+          name: getVaultField<string>(vaultRaw, "name", 0, ""),
+          riskLevel: Number(getVaultField<bigint>(vaultRaw, "riskLevel", 1, 0n)),
+          minAPY: getVaultField<bigint>(vaultRaw, "minAPY", 2, 0n),
+          maxAPY: getVaultField<bigint>(vaultRaw, "maxAPY", 3, 0n),
+          totalValueLocked: getVaultField<string>(vaultRaw, "totalValueLocked", 4, ZERO_CT_HASH),
+          tokenAddress,
+          active: Boolean(getVaultField<boolean>(vaultRaw, "active", 6, false)),
           depositorCount,
           tokenSymbol,
           tokenDecimals,
@@ -275,55 +291,18 @@ export function useVaultKeeper() {
     } finally {
       setIsRefreshing(false);
     }
-  }, [account, ethereum, selectedVaultId, showError]);
+  }, [account, publicClient, readNonView, selectedVaultId, showError]);
 
   useEffect(() => {
-    loadWalletState();
-  }, [loadWalletState]);
-
-  useEffect(() => {
-    if (!ethereum) return;
-
-    const onAccountsChanged = (accounts: unknown) => {
-      const list = Array.isArray(accounts) ? (accounts as string[]) : [];
-      if (list.length > 0) {
-        setAccount(list[0]);
-        setIsConnected(true);
-      } else {
-        setAccount("");
-        setIsConnected(false);
-      }
-    };
-
-    const onChainChanged = (value: unknown) => {
-      const chainHex = typeof value === "string" ? value : "0x0";
-      setChainId(Number.parseInt(chainHex, 16));
-    };
-
-    ethereum.on("accountsChanged", onAccountsChanged);
-    ethereum.on("chainChanged", onChainChanged);
-
-    return () => {
-      ethereum.removeListener("accountsChanged", onAccountsChanged);
-      ethereum.removeListener("chainChanged", onChainChanged);
-    };
-  }, [ethereum]);
-
-  useEffect(() => {
-    if (!ethereum) return;
     refreshAll();
     const timer = setInterval(() => {
       refreshAll();
     }, 12000);
     return () => clearInterval(timer);
-  }, [ethereum, refreshAll]);
+  }, [refreshAll]);
 
   const runWrite = useCallback(
-    async (fn: (signer: ethers.Signer) => Promise<void>, successText: string) => {
-      if (!ethereum) {
-        showError("Wallet provider not available.");
-        return;
-      }
+    async (fn: () => Promise<void>, successText: string) => {
       if (!account) {
         showInfo("Connect wallet first.");
         return;
@@ -332,12 +311,14 @@ export function useVaultKeeper() {
         showError(`Switch wallet network to ${supportedNetworksLabel}.`);
         return;
       }
+      if (!publicClient) {
+        showError("Public client not available.");
+        return;
+      }
 
       setIsSubmitting(true);
       try {
-        const provider = new ethers.BrowserProvider(ethereum as ethers.Eip1193Provider);
-        const signer = await provider.getSigner();
-        await fn(signer);
+        await fn();
         showSuccess(successText);
         await refreshAll();
       } catch (error) {
@@ -347,7 +328,15 @@ export function useVaultKeeper() {
         setIsSubmitting(false);
       }
     },
-    [account, ethereum, isCorrectNetwork, refreshAll, showError, showInfo, showSuccess, supportedNetworksLabel]
+    [account, isCorrectNetwork, publicClient, refreshAll, showError, showInfo, showSuccess, supportedNetworksLabel]
+  );
+
+  const waitForTx = useCallback(
+    async (hash: `0x${string}`) => {
+      if (!publicClient) return;
+      await publicClient.waitForTransactionReceipt({ hash });
+    },
+    [publicClient]
   );
 
   const deposit = useCallback(
@@ -369,22 +358,48 @@ export function useVaultKeeper() {
         return;
       }
 
-      await runWrite(async (signer) => {
-        const amount = ethers.parseUnits(amountHuman, selectedVault.tokenDecimals);
-        const vaultKeeper = new ethers.Contract(VAULT_KEEPER_ADDRESS, VAULT_KEEPER_ABI, signer);
-        const token = new ethers.Contract(selectedVault.tokenAddress, ERC20_ABI, signer);
+      await runWrite(async () => {
+        const amount = parseUnits(amountHuman, selectedVault.tokenDecimals);
+        const tokenAddress = selectedVault.tokenAddress as `0x${string}`;
 
-        const allowance = (await token.allowance(account, VAULT_KEEPER_ADDRESS)) as bigint;
-        if (allowance < amount) {
-          const approveTx = await token.approve(VAULT_KEEPER_ADDRESS, amount);
-          await approveTx.wait();
+        try {
+          const operatorUntil = Math.floor(Date.now() / 1000) + 60 * 60;
+          const operatorHash = await writeContractAsync({
+            address: tokenAddress,
+            abi: ERC20_ABI as unknown as Abi,
+            functionName: "setOperator",
+            args: [VAULT_KEEPER_ADDRESS, operatorUntil],
+          });
+          await waitForTx(operatorHash);
+        } catch {
+          const allowance = (await publicClient!.readContract({
+            address: tokenAddress,
+            abi: ERC20_ABI as unknown as Abi,
+            functionName: "allowance",
+            args: [account as `0x${string}`, VAULT_KEEPER_ADDRESS],
+          })) as bigint;
+          if (allowance < amount) {
+            const approveHash = await writeContractAsync({
+              address: tokenAddress,
+              abi: ERC20_ABI as unknown as Abi,
+              functionName: "approve",
+              args: [VAULT_KEEPER_ADDRESS, amount],
+            });
+            await waitForTx(approveHash);
+          }
         }
 
-        const tx = await vaultKeeper.deposit(BigInt(selectedVault.id), amount);
-        await tx.wait();
+        const encrypted = await encryptUint64(amount);
+        const hash = await writeContractAsync({
+          address: VAULT_KEEPER_ADDRESS as `0x${string}`,
+          abi: VAULT_KEEPER_ABI as unknown as Abi,
+          functionName: "deposit",
+          args: [BigInt(selectedVault.id), encrypted],
+        });
+        await waitForTx(hash);
       }, "Deposit successful.");
     },
-    [account, runWrite, selectedVault, showInfo]
+    [account, encryptUint64, publicClient, runWrite, selectedVault, showInfo, waitForTx, writeContractAsync]
   );
 
   const withdraw = useCallback(
@@ -398,29 +413,41 @@ export function useVaultKeeper() {
         return;
       }
 
-      await runWrite(async (signer) => {
-        const amount = ethers.parseUnits(amountHuman, selectedVault.tokenDecimals);
-        const vaultKeeper = new ethers.Contract(VAULT_KEEPER_ADDRESS, VAULT_KEEPER_ABI, signer);
-        const tx = await vaultKeeper.withdraw(BigInt(selectedVault.id), amount);
-        await tx.wait();
+      await runWrite(async () => {
+        const amount = parseUnits(amountHuman, selectedVault.tokenDecimals);
+        const encrypted = await encryptUint64(amount);
+        const hash = await writeContractAsync({
+          address: VAULT_KEEPER_ADDRESS as `0x${string}`,
+          abi: VAULT_KEEPER_ABI as unknown as Abi,
+          functionName: "withdraw",
+          args: [BigInt(selectedVault.id), encrypted],
+        });
+        await waitForTx(hash);
       }, "Withdraw successful.");
     },
-    [runWrite, selectedVault, showInfo]
+    [encryptUint64, runWrite, selectedVault, showInfo, waitForTx, writeContractAsync]
   );
 
-  const claimRewards = useCallback(async (vaultId?: number) => {
-    const targetVaultId = vaultId ?? selectedVault?.id;
-    if (targetVaultId === undefined) {
-      showInfo("Create or select a vault first.");
-      return;
-    }
+  const claimRewards = useCallback(
+    async (vaultId?: number) => {
+      const targetVaultId = vaultId ?? selectedVault?.id;
+      if (targetVaultId === undefined) {
+        showInfo("Create or select a vault first.");
+        return;
+      }
 
-    await runWrite(async (signer) => {
-      const vaultKeeper = new ethers.Contract(VAULT_KEEPER_ADDRESS, VAULT_KEEPER_ABI, signer);
-      const tx = await vaultKeeper.claimRewards(BigInt(targetVaultId));
-      await tx.wait();
-    }, "Rewards claimed.");
-  }, [runWrite, selectedVault, showInfo]);
+      await runWrite(async () => {
+        const hash = await writeContractAsync({
+          address: VAULT_KEEPER_ADDRESS as `0x${string}`,
+          abi: VAULT_KEEPER_ABI as unknown as Abi,
+          functionName: "claimRewards",
+          args: [BigInt(targetVaultId)],
+        });
+        await waitForTx(hash);
+      }, "Rewards claimed.");
+    },
+    [runWrite, selectedVault, showInfo, waitForTx, writeContractAsync]
+  );
 
   const compoundRewards = useCallback(
     async (vaultId?: number) => {
@@ -446,33 +473,70 @@ export function useVaultKeeper() {
         return;
       }
 
-      if (targetVault.userPendingRewards <= ZERO) {
+      const pendingPlain = await decryptUint64(targetVault.userPendingRewards);
+      if (pendingPlain <= ZERO) {
         showInfo("No rewards to compound yet.");
         return;
       }
 
-      await runWrite(async (signer) => {
-        const vaultKeeper = new ethers.Contract(VAULT_KEEPER_ADDRESS, VAULT_KEEPER_ABI, signer);
-        const reward = (await vaultKeeper.getPendingRewards(BigInt(targetVaultId), account)) as bigint;
+      await runWrite(async () => {
+        const rewardCt = (await readNonView("getPendingRewards", [
+          BigInt(targetVaultId),
+          account as `0x${string}`,
+        ])) as string;
+        const reward = await decryptUint64(rewardCt);
         if (reward <= ZERO) {
           throw new Error("No rewards to compound.");
         }
 
-        const token = new ethers.Contract(targetVault.tokenAddress, ERC20_ABI, signer);
-        const claimTx = await vaultKeeper.claimRewards(BigInt(targetVaultId));
-        await claimTx.wait();
+        const claimHash = await writeContractAsync({
+          address: VAULT_KEEPER_ADDRESS as `0x${string}`,
+          abi: VAULT_KEEPER_ABI as unknown as Abi,
+          functionName: "claimRewards",
+          args: [BigInt(targetVaultId)],
+        });
+        await waitForTx(claimHash);
 
-        const allowance = (await token.allowance(account, VAULT_KEEPER_ADDRESS)) as bigint;
+        const allowance = (await publicClient!.readContract({
+          address: targetVault.tokenAddress as `0x${string}`,
+          abi: ERC20_ABI as unknown as Abi,
+          functionName: "allowance",
+          args: [account as `0x${string}`, VAULT_KEEPER_ADDRESS],
+        })) as bigint;
         if (allowance < reward) {
-          const approveTx = await token.approve(VAULT_KEEPER_ADDRESS, reward);
-          await approveTx.wait();
+          const approveHash = await writeContractAsync({
+            address: targetVault.tokenAddress as `0x${string}`,
+            abi: ERC20_ABI as unknown as Abi,
+            functionName: "approve",
+            args: [VAULT_KEEPER_ADDRESS, reward],
+          });
+          await waitForTx(approveHash);
         }
 
-        const depositTx = await vaultKeeper.deposit(BigInt(targetVaultId), reward);
-        await depositTx.wait();
+        const encrypted = await encryptUint64(reward);
+        const depositHash = await writeContractAsync({
+          address: VAULT_KEEPER_ADDRESS as `0x${string}`,
+          abi: VAULT_KEEPER_ABI as unknown as Abi,
+          functionName: "deposit",
+          args: [BigInt(targetVaultId), encrypted],
+        });
+        await waitForTx(depositHash);
       }, "Yield compounded.");
     },
-    [account, runWrite, selectedVault, showInfo, stats.rewardToken, vaults]
+    [
+      account,
+      decryptUint64,
+      encryptUint64,
+      publicClient,
+      readNonView,
+      runWrite,
+      selectedVault,
+      showInfo,
+      stats.rewardToken,
+      vaults,
+      waitForTx,
+      writeContractAsync,
+    ]
   );
 
   const mintMockUsdt = useCallback(async () => {
@@ -509,18 +573,22 @@ export function useVaultKeeper() {
 
   const setRewardToken = useCallback(
     async (address: string) => {
-      if (!ethers.isAddress(address)) {
+      if (!address || address.length !== 42) {
         showInfo("Enter a valid reward token address.");
         return;
       }
 
-      await runWrite(async (signer) => {
-        const vaultKeeper = new ethers.Contract(VAULT_KEEPER_ADDRESS, VAULT_KEEPER_ABI, signer);
-        const tx = await vaultKeeper.setRewardToken(address);
-        await tx.wait();
+      await runWrite(async () => {
+        const hash = await writeContractAsync({
+          address: VAULT_KEEPER_ADDRESS as `0x${string}`,
+          abi: VAULT_KEEPER_ABI as unknown as Abi,
+          functionName: "setRewardToken",
+          args: [address as `0x${string}`],
+        });
+        await waitForTx(hash);
       }, "Reward token updated.");
     },
-    [runWrite, showInfo]
+    [runWrite, showInfo, waitForTx, writeContractAsync]
   );
 
   const createVault = useCallback(
@@ -530,24 +598,28 @@ export function useVaultKeeper() {
         return;
       }
       const tokenAddress = payload.tokenAddress.trim() || REWARD_TOKEN_ADDRESS;
-      if (!ethers.isAddress(tokenAddress)) {
+      if (!tokenAddress || tokenAddress.length !== 42) {
         showInfo("Enter a valid vault token address.");
         return;
       }
 
-      await runWrite(async (signer) => {
-        const vaultKeeper = new ethers.Contract(VAULT_KEEPER_ADDRESS, VAULT_KEEPER_ABI, signer);
-        const tx = await vaultKeeper.createVault(
-          payload.name.trim(),
-          BigInt(payload.riskLevel),
-          BigInt(payload.minAPY),
-          BigInt(payload.maxAPY),
-          tokenAddress
-        );
-        await tx.wait();
+      await runWrite(async () => {
+        const hash = await writeContractAsync({
+          address: VAULT_KEEPER_ADDRESS as `0x${string}`,
+          abi: VAULT_KEEPER_ABI as unknown as Abi,
+          functionName: "createVault",
+          args: [
+            payload.name.trim(),
+            BigInt(payload.riskLevel),
+            BigInt(payload.minAPY),
+            BigInt(payload.maxAPY),
+            tokenAddress as `0x${string}`,
+          ],
+        });
+        await waitForTx(hash);
       }, "Vault created.");
     },
-    [runWrite, showInfo]
+    [runWrite, showInfo, waitForTx, writeContractAsync]
   );
 
   const updateApy = useCallback(
@@ -557,24 +629,32 @@ export function useVaultKeeper() {
         return;
       }
 
-      await runWrite(async (signer) => {
-        const vaultKeeper = new ethers.Contract(VAULT_KEEPER_ADDRESS, VAULT_KEEPER_ABI, signer);
-        const tx = await vaultKeeper.updateAPY(BigInt(payload.vaultId), BigInt(payload.minAPY), BigInt(payload.maxAPY));
-        await tx.wait();
+      await runWrite(async () => {
+        const hash = await writeContractAsync({
+          address: VAULT_KEEPER_ADDRESS as `0x${string}`,
+          abi: VAULT_KEEPER_ABI as unknown as Abi,
+          functionName: "updateAPY",
+          args: [BigInt(payload.vaultId), BigInt(payload.minAPY), BigInt(payload.maxAPY)],
+        });
+        await waitForTx(hash);
       }, "APY updated.");
     },
-    [runWrite, showInfo]
+    [runWrite, showInfo, waitForTx, writeContractAsync]
   );
 
   const toggleVaultActive = useCallback(
     async (vaultId: number) => {
-      await runWrite(async (signer) => {
-        const vaultKeeper = new ethers.Contract(VAULT_KEEPER_ADDRESS, VAULT_KEEPER_ABI, signer);
-        const tx = await vaultKeeper.toggleVaultActive(BigInt(vaultId));
-        await tx.wait();
+      await runWrite(async () => {
+        const hash = await writeContractAsync({
+          address: VAULT_KEEPER_ADDRESS as `0x${string}`,
+          abi: VAULT_KEEPER_ABI as unknown as Abi,
+          functionName: "toggleVaultActive",
+          args: [BigInt(vaultId)],
+        });
+        await waitForTx(hash);
       }, `Vault ${vaultId} status updated.`);
     },
-    [runWrite]
+    [runWrite, waitForTx, writeContractAsync]
   );
 
   const emergencyWithdraw = useCallback(
@@ -589,14 +669,18 @@ export function useVaultKeeper() {
         return;
       }
 
-      await runWrite(async (signer) => {
-        const amountRaw = ethers.parseUnits(payload.amount, vault.tokenDecimals);
-        const vaultKeeper = new ethers.Contract(VAULT_KEEPER_ADDRESS, VAULT_KEEPER_ABI, signer);
-        const tx = await vaultKeeper.emergencyWithdraw(BigInt(vault.id), amountRaw);
-        await tx.wait();
+      await runWrite(async () => {
+        const amountRaw = parseUnits(payload.amount, vault.tokenDecimals);
+        const hash = await writeContractAsync({
+          address: VAULT_KEEPER_ADDRESS as `0x${string}`,
+          abi: VAULT_KEEPER_ABI as unknown as Abi,
+          functionName: "emergencyWithdraw",
+          args: [BigInt(vault.id), amountRaw],
+        });
+        await waitForTx(hash);
       }, "Emergency withdrawal complete.");
     },
-    [runWrite, showInfo, vaults]
+    [runWrite, showInfo, vaults, waitForTx, writeContractAsync]
   );
 
   return {

@@ -1,4 +1,4 @@
-export const VAULT_KEEPER_ADDRESS = "0x075219E95666366499b66fBEeEd8e19B8F262272";
+export const VAULT_KEEPER_ADDRESS = "0xc69E5C10D922353222a3F349d6120377333E8661";
 export const REWARD_TOKEN_ADDRESS = "0x027358685B192d707cbD87c9bb3a08bc7dC04Ac9";
 
 export const VAULT_KEEPER_ABI = [
@@ -400,6 +400,30 @@ export const VAULT_KEEPER_ABI = [
       }
     ],
     "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "vaultId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "address",
+        "name": "user",
+        "type": "address"
+      }
+    ],
+    "name": "getUserShare",
+    "outputs": [
+      {
+        "internalType": "euint64",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "nonpayable",
     "type": "function"
   },
   {

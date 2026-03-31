@@ -1,9 +1,14 @@
 import { ethers } from "ethers";
 import { NextRequest, NextResponse } from "next/server";
 import { getDefaultChain } from "../../../config/chains";
-import { ERC20_ABI, REWARD_TOKEN_ADDRESS } from "../../../config/vault_config";
+import { REWARD_TOKEN_ADDRESS } from "../../../config/vault_config";
 
 const FAUCET_AMOUNT = "100";
+const TOKEN_DECIMALS = 6;
+const FHEUSDT_ABI = [
+  "function owner() view returns (address)",
+  "function mint(address to, uint64 amount)",
+];
 
 type MintRequestBody = {
   address?: string;
@@ -30,11 +35,20 @@ export async function POST(request: NextRequest) {
     const rpcUrl = getDefaultChain().rpcUrls.default.http[0];
     const provider = new ethers.JsonRpcProvider(rpcUrl);
     const adminWallet = new ethers.Wallet(privateKey, provider);
-    const usdt = new ethers.Contract(REWARD_TOKEN_ADDRESS, ERC20_ABI, adminWallet);
+    const usdt = new ethers.Contract(REWARD_TOKEN_ADDRESS, FHEUSDT_ABI, adminWallet);
 
-    const decimals = Number(await usdt.decimals());
-    const amount = ethers.parseUnits(FAUCET_AMOUNT, decimals);
-    const tx = await usdt.transfer(userAddress, amount);
+    const onchainOwner = (await usdt.owner()) as string;
+    if (onchainOwner.toLowerCase() !== adminWallet.address.toLowerCase()) {
+      return NextResponse.json(
+        {
+          error: `Mint failed. Server wallet ${adminWallet.address} is not token owner ${onchainOwner}.`,
+        },
+        { status: 403 }
+      );
+    }
+
+    const amount = ethers.parseUnits(FAUCET_AMOUNT, TOKEN_DECIMALS);
+    const tx = await usdt.mint(userAddress, amount);
     await tx.wait();
 
     return NextResponse.json({

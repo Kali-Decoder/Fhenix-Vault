@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import { formatPercentFromBps, formatToken, shortAddress, useVaultKeeper } from "../hooks/useVaultKeeper";
+import { EncryptedValue } from "../components/EncryptedValue";
 
 export default function ProfilePage() {
   const { account, isConnected, vaults, stats } = useVaultKeeper();
@@ -49,9 +50,18 @@ export default function ProfilePage() {
                       <span className="text-monad-purple">#{vault.id}</span> {vault.name}
                     </td>
                     <td className="px-3 py-3">{vault.tokenSymbol}</td>
-                    <td className="px-3 py-3 text-monad-purple">{formatToken(vault.userDeposit, vault.tokenDecimals)}</td>
-                    <td className="px-3 py-3 text-monad-purple">{formatToken(vault.userPendingRewards, vault.tokenDecimals)}</td>
-                    <td className="px-3 py-3 text-monad-purple">{(Number(vault.userShareBps) / 100).toFixed(2)}%</td>
+                    <td className="px-3 py-3 text-monad-purple">
+                      <EncryptedValue ctHash={vault.userDeposit} decimals={vault.tokenDecimals} />
+                    </td>
+                    <td className="px-3 py-3 text-monad-purple">
+                      <EncryptedValue ctHash={vault.userPendingRewards} decimals={vault.tokenDecimals} />
+                    </td>
+                    <td className="px-3 py-3 text-monad-purple">
+                      <EncryptedValue
+                        ctHash={vault.userShareBps}
+                        formatValue={(value) => `${(Number(value) / 100).toFixed(2)}%`}
+                      />
+                    </td>
                     <td className="px-3 py-3 text-monad-purple">
                       {formatPercentFromBps(vault.minAPY)} - {formatPercentFromBps(vault.maxAPY)}
                     </td>

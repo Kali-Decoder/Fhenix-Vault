@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { AlertTriangle, ExternalLink, Loader2, Wallet, X } from "lucide-react";
+import { EncryptedValue } from "../components/EncryptedValue";
 import {
   formatPercentFromBps,
   formatToken,
@@ -10,6 +11,7 @@ import {
   useVaultKeeper,
 } from "../hooks/useVaultKeeper";
 import { VAULT_KEEPER_ADDRESS } from "../config/vault_config";
+import { useCofheClient } from "../hooks/useCofheClient";
 
 export default function VaultsPage() {
   const {
@@ -45,6 +47,8 @@ export default function VaultsPage() {
   const [riskFilter, setRiskFilter] = useState<"all" | "low" | "medium" | "high">("all");
   const [sortBy, setSortBy] = useState<"none" | "apr-desc" | "apr-asc" | "tvl-desc" | "tvl-asc">("none");
   const [isVaultDrawerOpen, setIsVaultDrawerOpen] = useState(false);
+  const { decryptUint64 } = useCofheClient();
+  const [tvlMap, setTvlMap] = useState<Record<number, bigint>>({});
 
   const depositModalVault = vaults.find((v) => v.id === depositModalVaultId) ?? null;
   const withdrawModalVault = vaults.find((v) => v.id === withdrawModalVaultId) ?? null;
@@ -82,6 +86,36 @@ export default function VaultsPage() {
     setIsVaultDrawerOpen(true);
   };
 
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadTvl = async () => {
+      if (vaults.length === 0 || !isConnected || !isCorrectNetwork) {
+        if (!cancelled) setTvlMap({});
+        return;
+      }
+
+      try {
+        const entries = await Promise.all(
+          vaults.map(async (vault) => {
+            const tvl = await decryptUint64(vault.totalValueLocked);
+            return [vault.id, tvl] as const;
+          })
+        );
+        if (!cancelled) {
+          setTvlMap(Object.fromEntries(entries));
+        }
+      } catch {
+        if (!cancelled) setTvlMap({});
+      }
+    };
+
+    loadTvl();
+    return () => {
+      cancelled = true;
+    };
+  }, [decryptUint64, isConnected, isCorrectNetwork, vaults]);
+
   const filteredVaults = useMemo(() => {
     const q = searchTerm.trim().toLowerCase();
     const list = vaults.filter((vault) => {
@@ -99,13 +133,21 @@ export default function VaultsPage() {
     } else if (sortBy === "apr-asc") {
       list.sort((a, b) => Number(a.maxAPY) - Number(b.maxAPY));
     } else if (sortBy === "tvl-desc") {
-      list.sort((a, b) => (a.totalValueLocked > b.totalValueLocked ? -1 : a.totalValueLocked < b.totalValueLocked ? 1 : 0));
+      list.sort((a, b) => {
+        const aTvl = tvlMap[a.id] ?? 0n;
+        const bTvl = tvlMap[b.id] ?? 0n;
+        return aTvl > bTvl ? -1 : aTvl < bTvl ? 1 : 0;
+      });
     } else if (sortBy === "tvl-asc") {
-      list.sort((a, b) => (a.totalValueLocked < b.totalValueLocked ? -1 : a.totalValueLocked > b.totalValueLocked ? 1 : 0));
+      list.sort((a, b) => {
+        const aTvl = tvlMap[a.id] ?? 0n;
+        const bTvl = tvlMap[b.id] ?? 0n;
+        return aTvl < bTvl ? -1 : aTvl > bTvl ? 1 : 0;
+      });
     }
 
     return list;
-  }, [riskFilter, searchTerm, sortBy, vaults]);
+  }, [riskFilter, searchTerm, sortBy, tvlMap, vaults]);
 
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 sm:py-10">
@@ -162,7 +204,7 @@ export default function VaultsPage() {
               disabled={!isConnected || !isCorrectNetwork || isSubmitting}
               className="rounded-lg border border-white/30 bg-white/5 px-4 py-2 text-sm font-semibold text-white hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              Mint USDT
+              Mint FHE-USDT
             </button>
           </div>
         </div>
@@ -262,16 +304,34 @@ export default function VaultsPage() {
                 <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
                   <ConfigItem
                     label="TVL"
-                    value={`${formatToken(vault.totalValueLocked, vault.tokenDecimals)} ${vault.tokenSymbol}`}
+                    value={
+                      <EncryptedValue
+                        ctHash={vault.totalValueLocked}
+                        decimals={vault.tokenDecimals}
+                        suffix={vault.tokenSymbol}
+                      />
+                    }
                   />
                   <ConfigItem label="Depositors" value={vault.depositorCount.toString()} />
                   <ConfigItem
                     label="Your Deposit"
-                    value={`${formatToken(vault.userDeposit, vault.tokenDecimals)} ${vault.tokenSymbol}`}
+                    value={
+                      <EncryptedValue
+                        ctHash={vault.userDeposit}
+                        decimals={vault.tokenDecimals}
+                        suffix={vault.tokenSymbol}
+                      />
+                    }
                   />
                   <ConfigItem
                     label="Your Pending Yield"
-                    value={`${formatToken(vault.userPendingRewards, vault.tokenDecimals)} ${vault.tokenSymbol}`}
+                    value={
+                      <EncryptedValue
+                        ctHash={vault.userPendingRewards}
+                        decimals={vault.tokenDecimals}
+                        suffix={vault.tokenSymbol}
+                      />
+                    }
                   />
                 </div>
                 <p className="mt-2 break-all text-[11px] text-zinc-400">
@@ -353,16 +413,34 @@ export default function VaultsPage() {
             <DataRow label="Status" value={selectedVault.active ? "Active" : "Paused"} />
             <DataRow
               label="TVL"
-              value={`${formatToken(selectedVault.totalValueLocked, selectedVault.tokenDecimals)} ${selectedVault.tokenSymbol}`}
+              value={
+                <EncryptedValue
+                  ctHash={selectedVault.totalValueLocked}
+                  decimals={selectedVault.tokenDecimals}
+                  suffix={selectedVault.tokenSymbol}
+                />
+              }
             />
             <DataRow label="Depositors" value={selectedVault.depositorCount.toString()} />
             <DataRow
               label="Your Deposit"
-              value={`${formatToken(selectedVault.userDeposit, selectedVault.tokenDecimals)} ${selectedVault.tokenSymbol}`}
+              value={
+                <EncryptedValue
+                  ctHash={selectedVault.userDeposit}
+                  decimals={selectedVault.tokenDecimals}
+                  suffix={selectedVault.tokenSymbol}
+                />
+              }
             />
             <DataRow
               label="Pending Rewards"
-              value={`${formatToken(selectedVault.userPendingRewards, selectedVault.tokenDecimals)} ${selectedVault.tokenSymbol}`}
+              value={
+                <EncryptedValue
+                  ctHash={selectedVault.userPendingRewards}
+                  decimals={selectedVault.tokenDecimals}
+                  suffix={selectedVault.tokenSymbol}
+                />
+              }
             />
             <DataRow
               label={`Wallet ${selectedVault.tokenSymbol}`}
@@ -445,9 +523,11 @@ export default function VaultsPage() {
         <Modal title={`Withdraw ${withdrawModalVault.tokenSymbol}`} onClose={() => setWithdrawModalVaultId(null)}>
           <p className="text-sm text-zinc-300">
             Available to withdraw:{" "}
-            <span className="font-semibold text-monad-purple">
-              {formatToken(withdrawModalVault.userDeposit, withdrawModalVault.tokenDecimals)} {withdrawModalVault.tokenSymbol}
-            </span>
+            <EncryptedValue
+              ctHash={withdrawModalVault.userDeposit}
+              decimals={withdrawModalVault.tokenDecimals}
+              suffix={withdrawModalVault.tokenSymbol}
+            />
           </p>
           <input
             value={withdrawAmount}
@@ -473,15 +553,19 @@ export default function VaultsPage() {
         <Modal title={`Claim ${claimModalVault.tokenSymbol} Yield`} onClose={() => setClaimModalVaultId(null)}>
           <p className="text-sm text-zinc-300">
             Claimable amount:{" "}
-            <span className="font-semibold text-monad-purple">
-              {formatToken(claimModalVault.userPendingRewards, claimModalVault.tokenDecimals)} {claimModalVault.tokenSymbol}
-            </span>
+            <EncryptedValue
+              ctHash={claimModalVault.userPendingRewards}
+              decimals={claimModalVault.tokenDecimals}
+              suffix={claimModalVault.tokenSymbol}
+            />
           </p>
           <p className="mt-2 text-sm text-zinc-300">
             Claimed yield so far:{" "}
-            <span className="font-semibold text-monad-purple">
-              {formatToken(claimModalVault.userRewardsClaimed, claimModalVault.tokenDecimals)} {claimModalVault.tokenSymbol}
-            </span>
+            <EncryptedValue
+              ctHash={claimModalVault.userRewardsClaimed}
+              decimals={claimModalVault.tokenDecimals}
+              suffix={claimModalVault.tokenSymbol}
+            />
           </p>
           <p className="mt-2 text-xs text-zinc-400">
             Vault APY: {formatPercentFromBps(claimModalVault.minAPY)} - {formatPercentFromBps(claimModalVault.maxAPY)}
@@ -512,10 +596,11 @@ export default function VaultsPage() {
           <div className="mt-4 rounded-lg border border-zinc-800 bg-black/35 px-3 py-2 text-xs text-zinc-300">
             <p>
               Pending yield:{" "}
-              <span className="font-semibold text-monad-purple">
-                {formatToken(compoundModalVault.userPendingRewards, compoundModalVault.tokenDecimals)}{" "}
-                {compoundModalVault.tokenSymbol}
-              </span>
+              <EncryptedValue
+                ctHash={compoundModalVault.userPendingRewards}
+                decimals={compoundModalVault.tokenDecimals}
+                suffix={compoundModalVault.tokenSymbol}
+              />
             </p>
             <p className="mt-1 text-zinc-400">
               Reward token: <span className="font-mono text-zinc-300">{shortAddress(stats.rewardToken)}</span>
@@ -537,7 +622,7 @@ export default function VaultsPage() {
   );
 }
 
-function DataRow({ label, value }: { label: string; value: string }) {
+function DataRow({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="flex items-center justify-between gap-3 rounded-lg border border-zinc-800 bg-black/35 px-3 py-2">
       <dt className="text-zinc-400">{label}</dt>
@@ -546,7 +631,7 @@ function DataRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-function ConfigItem({ label, value }: { label: string; value: string }) {
+function ConfigItem({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="rounded-md border border-zinc-800 bg-black/30 px-2 py-2">
       <p className="text-[10px] uppercase tracking-[0.08em] text-zinc-500">{label}</p>

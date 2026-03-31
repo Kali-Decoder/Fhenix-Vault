@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
-import "./globals.css";
+import "./theme.css";
 import { Providers } from "./providers";
 import { FontLoader } from "./components/FontLoader";
 import { Navigation } from "./components/Navigation";

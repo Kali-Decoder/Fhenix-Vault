@@ -72,7 +72,7 @@ export default function AdminPage() {
                 disabled={isSubmitting}
                 className="rounded-lg border border-white/30 bg-white/5 px-4 py-2 text-sm font-semibold text-white hover:bg-white/10 disabled:opacity-60"
               >
-                Mint USDT
+                Mint FHE-USDT
               </button>
               <button
                 onClick={() => setShowCreateVaultModal(true)}

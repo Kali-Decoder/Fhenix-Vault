@@ -61,10 +61,10 @@ export const arbSepolia: AppChain = {
   testnet: true,
 };
 
-export const allChains: AppChain[] = [baseSepolia, arbSepolia];
+export const allChains: AppChain[] = [arbSepolia];
 export const mainnetChains: AppChain[] = [];
-export const testnetChains: AppChain[] = [baseSepolia, arbSepolia];
-export const popularChains: AppChain[] = [baseSepolia, arbSepolia];
+export const testnetChains: AppChain[] = [arbSepolia];
+export const popularChains: AppChain[] = [arbSepolia];
 
 export const getChainById = (chainId: number): AppChain | undefined => {
   return allChains.find((chain) => chain.id === chainId);
@@ -73,11 +73,11 @@ export const getChainById = (chainId: number): AppChain | undefined => {
 export const getDefaultChainId = () => {
   const envValue = process.env.NEXT_PUBLIC_DEFAULT_CHAIN_ID || process.env.DEFAULT_CHAIN_ID || "";
   const parsed = Number(envValue);
-  return Number.isFinite(parsed) ? parsed : baseSepolia.id;
+  return Number.isFinite(parsed) ? parsed : arbSepolia.id;
 };
 
 export const getDefaultChain = () => {
-  return getChainById(getDefaultChainId()) ?? baseSepolia;
+  return getChainById(getDefaultChainId()) ?? arbSepolia;
 };
 
 export const getChainDisplayName = (chain: AppChain): string => {

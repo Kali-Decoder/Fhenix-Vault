@@ -5,6 +5,8 @@ import { Loader2, RefreshCcw, Trophy, Wallet } from "lucide-react";
 import { ethers } from "ethers";
 import { VAULT_KEEPER_ABI, VAULT_KEEPER_ADDRESS } from "../config/vault_config";
 import { shortAddress, useVaultKeeper } from "../hooks/useVaultKeeper";
+import { useCofheClient } from "../hooks/useCofheClient";
+import { RevealValue } from "../components/RevealValue";
 
 const POINTS_PER_USDT = 0.35;
 
@@ -22,6 +24,7 @@ export default function LeaderboardPage() {
     switchToDefaultNetwork,
     vaults,
   } = useVaultKeeper();
+  const { decryptUint64 } = useCofheClient();
 
   const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -63,12 +66,13 @@ export default function LeaderboardPage() {
         for (let i = 0; i < countNum; i += 1) {
           const depositor = (await vaultKeeper.vaultDepositors(BigInt(vault.id), BigInt(i))) as string;
           const deposit = (await vaultKeeper.userDeposits(BigInt(vault.id), depositor)) as {
-            amount: bigint;
+            amount: string;
             timestamp: bigint;
           };
 
+          const decrypted = await decryptUint64(deposit.amount);
           const prev = totals.get(depositor) ?? BigInt(0);
-          totals.set(depositor, prev + deposit.amount);
+          totals.set(depositor, prev + decrypted);
         }
       }
 
@@ -91,7 +95,7 @@ export default function LeaderboardPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [isConnected, isCorrectNetwork, usdtVaults, usdtDecimals]);
+  }, [decryptUint64, isConnected, isCorrectNetwork, usdtVaults, usdtDecimals]);
 
   useEffect(() => {
     if (!isConnected || !isCorrectNetwork || hasAutoLoaded.current) return;
@@ -180,10 +184,10 @@ export default function LeaderboardPage() {
                       </td>
                       <td className="px-4 py-3 font-mono text-xs text-zinc-300">{shortAddress(entry.address)}</td>
                       <td className="px-4 py-3 text-monad-purple">
-                        {amount.toLocaleString(undefined, { maximumFractionDigits: 4 })}
+                        <RevealValue value={amount.toLocaleString(undefined, { maximumFractionDigits: 4 })} />
                       </td>
                       <td className="px-4 py-3 text-monad-purple">
-                        {entry.points.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                        <RevealValue value={entry.points.toLocaleString(undefined, { maximumFractionDigits: 2 })} />
                       </td>
                     </tr>
                   );
