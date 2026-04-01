@@ -1,4 +1,76 @@
-# VaultKeeper Platform
+# VaultKeeper — Private Yield Vaults
+Your Yield. Your Balance. Your Edge.
+
+VaultKeeper is a privacy-first DeFi yield platform where deposits, balances, rewards, and TVL remain encrypted on-chain using Fhenix Fully Homomorphic Encryption (FHE). Users earn yield in risk-based vaults without exposing financial behavior on public ledgers.
+
+Built for the Fhenix Privacy-by-Design dApp Buildathon.
+
+## Documentation
+- **Why VaultKeeper**: The problem, the privacy gap in DeFi, and why now
+- **How It Works**: Full walkthrough from deposit to withdraw
+- **FHE Explained**: What Fully Homomorphic Encryption is
+- **Architecture**: System design and component overview
+- **Privacy Model**: Exactly what is hidden and what is not
+- **Smart Contracts**: Full contract reference
+- **Economics**: Vault APY bands and reward math
+- **Security**: Threat model and mitigations
+- **Deployment**: Step-by-step deploy guide
+- **Roadmap**: V1 → V5 and beyond
+- **FAQ**: Questions from users, developers, investors
+
+## Quick Start
+
+```bash
+# 1. Deploy contract (get testnet ETH first)
+cd /Users/nikku.jr.dev/Downloads/VaultKeeper-
+cp .env.example .env
+npm install
+npx hardhat run scripts/deployFHEVaultKeeper.ts --network arb-sepolia
+
+# 2. Configure frontend
+cd client
+cp .env.local.example .env.local
+# Add VAULT_KEEPER_ADDRESS + REWARD_TOKEN_ADDRESS from deploy output
+
+# 3. Run
+npm install
+npm run dev
+# → http://localhost:3000
+```
+
+Full instructions: Deployment Guide
+
+## What Makes VaultKeeper Different
+
+Standard DeFi vault:
+```
+deposit(vaultId, amount=1000 USDT)
+→ user balance stored: 1000  ← anyone can read this
+```
+
+VaultKeeper:
+```
+encrypt(amount=1000 USDT) → 0x8ab1... (FHE ciphertext)
+deposit(vaultId, 0x8ab1...)
+→ balance stored: 0x8ab1...  ← computationally opaque
+```
+
+The contract computes on encrypted state using `FHE.add()`, `FHE.sub()`, and `FHE.select()` — never decrypting individual balances. The Fhenix FHE network guarantees correctness of computation on ciphertext.
+
+## Stack
+
+| Layer | Technology |
+|---|---|
+| Smart contracts | Solidity 0.8.x + @fhenixprotocol/contracts |
+| FHE types | `euint64` (amounts), `ebool` (checks) |
+| Network | Arbitrum Sepolia / Base Sepolia (CoFHE) |
+| Frontend | Next.js, TypeScript, Tailwind CSS |
+| Wallet | Wagmi v2 |
+| Client FHE | @cofhe/sdk (CoFHE) |
+
+---
+
+## Product Overview
 
 VaultKeeper is a privacy-first DeFi yield platform built on Fhenix FHE. Users deposit into risk-based vaults, earn yield,
 and manage positions while balances, deposits, rewards, and TVL remain encrypted on-chain.
@@ -8,37 +80,22 @@ The repository contains:
 - Hardhat deployment + owner operation scripts
 - A Next.js frontend for encrypted vault UX (Vaults, Profile, Admin, Analytics)
 
-## Why This Product Exists
+### Core Features
 
-Most DeFi platforms are fully transparent, exposing user balances, strategies, and financial behavior. This enables
-copy-trading, privacy risks, and potential exploitation.
-
-VaultKeeper addresses this by providing confidential DeFi where sensitive data stays private while still enabling
-secure, composable on-chain computation.
-
-## Product Goals
-
-- Make yield participation private by default
-- Keep all sensitive data encrypted on-chain
-- Preserve composability and security while hiding values
-- Deliver a strong UX with frontend encryption + decryption
-
-## Core Features
-
-### User Features
+**User Features**
 - Browse risk-based vaults without exposing user balances
 - Deposit and withdraw with encrypted balances
 - Claim rewards while keeping values private
 - View decrypted balances and rewards in the UI only
 
-### Admin Features
+**Admin Features**
 - Set platform reward token
 - Create vaults dynamically (`name`, `risk`, `APY`, `token`)
 - Update APY bands per vault
 - Toggle vault active/paused status
 - Emergency withdraw for vault operations
 
-### Product UX Features
+**Product UX Features**
 - Dedicated pages (`/vaults`, `/profile`, `/admin`, `/analytics`)
 - Wallet-aware admin gating (admin actions appear only for owner wallet)
 - Modal-driven transactional actions (deposit/withdraw/claim/admin actions)
@@ -63,38 +120,6 @@ This project relies on Fhenix FHE at every layer. Here is exactly where it shows
 - In-app FHEUSDT faucet: a local/testnet mint endpoint at `client/app/api/faucet/usdt/route.ts`.
 - UI entry points: “Mint FHE-USDT” buttons in `client/app/vaults/page.tsx` and `client/app/admin/page.tsx`.
 
-## System Architecture
-
-### Contracts
-- `contracts/FHEVaultKeeper.sol`
-  - Multi-vault storage and lifecycle management
-  - Encrypted deposit/withdraw/reward claim logic
-  - APY updates, reward token config, vault status control
-- `contracts/FHEUSDT.sol`
-  - Fhenix FHERC20-based confidential token for testing
-
-### Backend/Tooling
-- Hardhat + TypeScript scripts for deployment and owner operations
-- TypeChain bindings for contract interaction safety
-
-### Frontend
-- Next.js app in `client` directory
-- Shared hook-based contract integration (`useVaultKeeper`)
-- Config-driven chain + contract addresses
-
-## Smart Contract Mechanics (High Level)
-
-1. Owner sets `rewardToken`
-2. Owner creates vaults with:
-   - Risk level (`Low/Medium/High`)
-   - APY range (`minAPY`, `maxAPY` in basis points)
-   - Deposit token address
-3. Frontend encrypts user inputs
-4. User deposits into selected vault with encrypted values
-5. Yield accrues on encrypted balances
-6. User decrypts rewards/positions client-side
-7. Owner can adjust APY or pause vault if needed
-
 ## Network Configuration
 
 Current target networks:
@@ -104,19 +129,11 @@ Current target networks:
 ## Contract Addresses (Current)
 
 Frontend currently points to:
-- `VAULT_KEEPER_ADDRESS=0x68BB922f1c1466108206D873c370617697Cd4271`
-- `REWARD_TOKEN_ADDRESS=0x1daBC80337bF2d85d496c4eD9cE63a1b16Fbd539`
+- `VAULT_KEEPER_ADDRESS=0x075219E95666366499b66fBEeEd8e19B8F262272`
+- `REWARD_TOKEN_ADDRESS=0x027358685B192d707cbD87c9bb3a08bc7dC04Ac9`
 
 Update these in:
 - `client/app/config/vault_config.ts`
-
-## Repository Structure
-
-- `contracts/` smart contracts
-- `scripts/` deployment and owner ops scripts
-- `deployments/` JSON deployment records
-- `client/` Next.js app
-- `hardhat.config.ts` network + compiler config
 
 ## Owner Operation Scripts
 

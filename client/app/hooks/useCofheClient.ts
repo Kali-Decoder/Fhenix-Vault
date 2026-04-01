@@ -33,11 +33,15 @@ export function useCofheClient() {
   }, [address, client, ready]);
 
   const encryptUint64 = useCallback(
-    async (value: bigint) => {
+    async (value: bigint, accountOverride?: string) => {
       if (!client || !ready || !client.connected) {
         throw new Error("CoFHE client not connected.");
       }
-      const [encrypted] = await client.encryptInputs([Encryptable.uint64(value)]).execute();
+      const builder = client.encryptInputs([Encryptable.uint64(value)]);
+      if (accountOverride) {
+        builder.setAccount(accountOverride);
+      }
+      const [encrypted] = await builder.execute();
       return encrypted as InEuint64;
     },
     [client, ready]

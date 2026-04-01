@@ -402,7 +402,7 @@ export function useVaultKeeper() {
           }
         }
 
-        const encrypted = await encryptUint64(amount);
+        const encrypted = await encryptUint64(amount, VAULT_KEEPER_ADDRESS);
         const hash = await writeContractAsync({
           address: VAULT_KEEPER_ADDRESS as `0x${string}`,
           abi: VAULT_KEEPER_ABI as unknown as Abi,
@@ -428,7 +428,7 @@ export function useVaultKeeper() {
 
       await runWrite(async () => {
         const amount = parseUnits(amountHuman, selectedVault.tokenDecimals);
-        const encrypted = await encryptUint64(amount);
+        const encrypted = await encryptUint64(amount, VAULT_KEEPER_ADDRESS);
         const hash = await writeContractAsync({
           address: VAULT_KEEPER_ADDRESS as `0x${string}`,
           abi: VAULT_KEEPER_ABI as unknown as Abi,

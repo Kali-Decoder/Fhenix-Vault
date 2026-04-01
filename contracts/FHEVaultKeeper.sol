@@ -103,9 +103,8 @@ contract VaultKeeper is Ownable {
 
         IFHERC20 token = IFHERC20(v.tokenAddress);
 
-        token.confidentialTransferFrom(msg.sender, address(this), encAmount);
-
-        euint64 amount = FHE.asEuint64(encAmount);
+        // Use the returned encrypted amount so this contract is authorized to use it.
+        euint64 amount = token.confidentialTransferFrom(msg.sender, address(this), encAmount);
 
         if (userDeposits[vaultId][msg.sender].timestamp == 0) {
             vaultDepositors[vaultId].push(msg.sender);
@@ -129,7 +128,8 @@ contract VaultKeeper is Ownable {
 
         IFHERC20 token = IFHERC20(v.tokenAddress);
 
-        euint64 amount = FHE.asEuint64(encAmount);
+        // Use the returned encrypted amount so this contract is authorized to use it.
+        euint64 amount = token.confidentialTransfer(msg.sender, encAmount);
 
         ebool canWithdraw = amount.lte(user.amount);
 
@@ -144,8 +144,6 @@ contract VaultKeeper is Ownable {
             FHE.sub(v.totalValueLocked, amount),
             v.totalValueLocked
         );
-
-        token.confidentialTransfer(msg.sender, encAmount);
 
         emit WithdrawalMade(vaultId, msg.sender);
     }
