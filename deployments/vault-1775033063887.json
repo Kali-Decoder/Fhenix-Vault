@@ -1,9 +1,9 @@
 {
   "contract": "VaultKeeper",
-  "address": "0xC0f6415818ADC960DCFd3929e3457177e2c02A79",
+  "address": "0x3A803D08ef565732CA56ec6605e338A833bcB36A",
   "owner": "0xdAF0182De86F904918Db8d07c7340A1EfcDF8244",
   "token": "0x027358685B192d707cbD87c9bb3a08bc7dC04Ac9",
   "chainId": "421614",
   "vaultCount": "3",
-  "deployedAt": "2026-04-01T10:01:23.434Z"
+  "deployedAt": "2026-04-01T08:44:23.886Z"
 }
