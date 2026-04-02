@@ -18,27 +18,6 @@ Built for the Fhenix Privacy-by-Design dApp Buildathon.
 - **Roadmap**: V1 → V5 and beyond
 - **FAQ**: Questions from users, developers, investors
 
-## Quick Start
-
-```bash
-# 1. Deploy contract (get testnet ETH first)
-cd /Users/nikku.jr.dev/Downloads/VaultKeeper-
-cp .env.example .env
-npm install
-npx hardhat run scripts/deployFHEVaultKeeper.ts --network arb-sepolia
-
-# 2. Configure frontend
-cd client
-cp .env.local.example .env.local
-# Add VAULT_KEEPER_ADDRESS + REWARD_TOKEN_ADDRESS from deploy output
-
-# 3. Run
-npm install
-npm run dev
-# → http://localhost:3000
-```
-
-Full instructions: Deployment Guide
 
 ## What Makes VaultKeeper Different
 
