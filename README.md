@@ -110,15 +110,15 @@ This section maps every major feature to its Fhenix FHE usage so the full applic
 
 ```mermaid
 flowchart LR
-  U[User + Wallet] --> FE[Next.js App]
-  FE --> C[CoFHE Client + Permits]
-  C --> FHEVM[Fhenix fhEVM Network]
-  FHEVM --> VK[VaultKeeper Contract]
-  FHEVM --> FT[FHEUSDT (FHERC20)]
-  VK --> FHELIB[FHE Types + Ops]
+  U["User + Wallet"] --> FE["Next.js App"]
+  FE --> C["CoFHE Client + Permits"]
+  C --> FHEVM["Fhenix fhEVM Network"]
+  FHEVM --> VK["VaultKeeper Contract"]
+  FHEVM --> FT["FHEUSDT (FHERC20)"]
+  VK --> FHELIB["FHE Types + Ops"]
   FT --> FHELIB
-  FE --> API[Next API Faucet]
-  S[Owner Scripts] --> FHEVM
+  FE --> API["Next API Faucet"]
+  S["Owner Scripts"] --> FHEVM
 ```
 
 ### Encrypted Data Lifecycle (End-to-End)
