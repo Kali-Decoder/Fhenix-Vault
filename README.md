@@ -102,6 +102,68 @@ The repository contains:
 - Success toasts + confetti feedback on successful operations
 - Filtering/search/sort in vault listings (name, risk, APR, TVL)
 
+## Architecture & Functionality (Fhenix fhEVM Showcase)
+
+This section maps every major feature to its Fhenix FHE usage so the full application surface area is easy to evaluate.
+
+### Architecture Diagram
+
+```mermaid
+flowchart LR
+  U[User + Wallet] --> FE[Next.js App]
+  FE --> C[CoFHE Client + Permits]
+  C --> FHEVM[Fhenix fhEVM Network]
+  FHEVM --> VK[VaultKeeper Contract]
+  FHEVM --> FT[FHEUSDT (FHERC20)]
+  VK --> FHELIB[FHE Types + Ops]
+  FT --> FHELIB
+  FE --> API[Next API Faucet]
+  S[Owner Scripts] --> FHEVM
+```
+
+### Encrypted Data Lifecycle (End-to-End)
+1. User enters an amount in the UI and the CoFHE client encrypts it with Fhenix keys.
+2. The user grants a permit that allows confidential transfers to the vault contract.
+3. The encrypted amount is sent to the fhEVM and processed with FHE ops (`FHE.add`, `FHE.sub`, `FHE.select`, `FHE.mul`, `FHE.div`).
+4. Encrypted balances and TVL are stored on-chain as `euint64` values (never decrypted on-chain).
+5. The UI locally decrypts values for the user only.
+
+### Functional Coverage Map
+
+**User Flows**
+- **Deposit**: Encrypted input, confidential transfer into the vault, encrypted balance + TVL updates on-chain.
+- **Withdraw**: Encrypted request, FHE-safe balance check, confidential transfer back to user.
+- **Claim Rewards**: Yield computed via FHE math and transferred as confidential token.
+- **Compound**: UI-only flow that claims rewards then deposits again when reward token matches vault token.
+- **Private Portfolio View**: Decrypts user deposit, pending rewards, and vault TVL client-side only.
+
+**Admin / Owner Flows**
+- **Create Vaults**: Set name, risk, APY band, and confidential token.
+- **Set Reward Token**: Defines which FHERC20 is used for rewards.
+- **Update APY**: Change APY bands without revealing depositor data.
+- **Toggle Vault Active**: Pause/unpause a vault.
+- **Emergency Withdraw**: Owner-only drain using encrypted balances.
+
+**Analytics & UX**
+- **Vault Analytics Page**: Aggregated stats (active vaults, depositor counts, TVL trends) from encrypted state.
+- **FHE-USDT Faucet**: On-chain mint endpoint for demo/testing.
+- **Network Guardrails**: Base Sepolia + Arbitrum Sepolia wallet switching and RPC config.
+
+### Where Fhenix FHE Appears (Exact Touch Points)
+- On-chain encrypted math and types in `contracts/FHEVaultKeeper.sol`
+- Confidential token via FHERC20 in `contracts/FHEUSDT.sol`
+- CoFHE client config in `client/lib/cofhe-client.ts`
+- CoFHE provider wiring in `client/contexts/cofhe-provider.tsx`
+- Encrypt/decrypt helpers in `client/app/hooks/useCofheClient.ts`
+- Encrypted vault flows + writes in `client/app/hooks/useVaultKeeper.ts`
+- Encrypted UI rendering in `client/app/components/EncryptedValue.tsx`
+- Scripted FHE deposit flow with permits in `scripts/vaultFHEDeposit.ts`
+
+### Privacy Boundaries (What Stays Hidden)
+- User deposits, balances, rewards, and vault TVL remain encrypted on-chain.
+- Contracts perform arithmetic on ciphertext without ever revealing user amounts.
+- Decryption happens only in the client for the connected wallet.
+
 ## Fhenix fhEVM + CoFHE Usage (Highlight)
 
 This project relies on Fhenix FHE at every layer. Here is exactly where it shows up:
