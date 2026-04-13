@@ -1,9 +1,9 @@
 "use client";
 
 import { useCallback, useRef } from "react";
+import { useCofheClient as useCofheClientSDK, useCofheConnection } from "@cofhe/react";
 import { Encryptable, FheTypes } from "@cofhe/sdk";
 import { useAccount } from "wagmi";
-import { useCofhe } from "@/contexts/cofhe-provider";
 import { useToastContext } from "../contexts/ToastContext";
 
 type InEuint64 = {
@@ -15,12 +15,13 @@ type InEuint64 = {
 
 export function useCofheClient() {
   const { showError } = useToastContext();
-  const { ready, client } = useCofhe();
+  const client = useCofheClientSDK();
+  const { connected, connecting } = useCofheConnection();
   const { address } = useAccount();
   const permitReadyRef = useRef(false);
 
   const ensurePermitReady = useCallback(async () => {
-    if (!client || !ready || !client.connected) {
+    if (!client || !connected) {
       throw new Error("CoFHE client not connected.");
     }
     if (!address) {
@@ -30,11 +31,11 @@ export function useCofheClient() {
       await client.permits.getOrCreateSelfPermit();
       permitReadyRef.current = true;
     }
-  }, [address, client, ready]);
+  }, [address, client, connected]);
 
   const encryptUint64 = useCallback(
     async (value: bigint, accountOverride?: string) => {
-      if (!client || !ready || !client.connected) {
+      if (!client || !connected) {
         throw new Error("CoFHE client not connected.");
       }
       const builder = client.encryptInputs([Encryptable.uint64(value)]);
@@ -44,13 +45,13 @@ export function useCofheClient() {
       const [encrypted] = await builder.execute();
       return encrypted as InEuint64;
     },
-    [client, ready]
+    [client, connected]
   );
 
   const decryptUint64 = useCallback(
     async (ctHash: string) => {
       try {
-        if (!client || !ready || !client.connected) {
+        if (!client || !connected) {
           throw new Error("CoFHE client not connected.");
         }
         if (!ctHash) {
@@ -65,11 +66,8 @@ export function useCofheClient() {
         throw error;
       }
     },
-    [client, ensurePermitReady, ready, showError]
+    [client, connected, ensurePermitReady, showError]
   );
-
-  const connected = !!client && ready && client.connected;
-  const connecting = !!client && !ready;
 
   return {
     connected,

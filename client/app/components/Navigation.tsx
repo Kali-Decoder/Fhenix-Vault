@@ -198,6 +198,13 @@ export function Navigation() {
               onClick={() => setProfileOpen((open) => !open)}
               className="rounded-lg border border-zinc-700 bg-black px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-zinc-200 hover:border-zinc-500"
             >
+              <span className="mr-2 inline-flex h-2 w-2 items-center justify-center rounded-full border border-zinc-700">
+                <span
+                  className={`h-1.5 w-1.5 rounded-full ${
+                    cofheConnected ? "bg-emerald-400" : "bg-rose-500"
+                  }`}
+                />
+              </span>
               Profile
             </button>
             {profileOpen ? (

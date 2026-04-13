@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { formatUnits, parseUnits, type Abi } from "viem";
 import { useAccount, useChainId, useConnect, usePublicClient, useSwitchChain, useWriteContract } from "wagmi";
+import { Encryptable } from "@cofhe/sdk";
+import { useCofheEncrypt, useCofheWriteContract } from "@cofhe/react";
 import { allChains, getChainById, getDefaultChain } from "../config/chains";
 import { ERC20_ABI, REWARD_TOKEN_ADDRESS, VAULT_KEEPER_ABI, VAULT_KEEPER_ADDRESS } from "../config/vault_config";
 import { useToastContext } from "../contexts/ToastContext";
@@ -86,13 +88,15 @@ function getVaultField<T>(vaultRaw: unknown, key: string, index: number, fallbac
 
 export function useVaultKeeper() {
   const { showError, showInfo, showSuccess } = useToastContext();
-  const { decryptUint64, encryptUint64, connected: cofheConnected } = useCofheClient();
+  const { decryptUint64, connected: cofheConnected } = useCofheClient();
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
   const { connectAsync, connectors } = useConnect();
   const { switchChainAsync } = useSwitchChain();
   const publicClient = usePublicClient();
   const { writeContractAsync } = useWriteContract();
+  const { encryptInputsAsync, isEncrypting } = useCofheEncrypt();
+  const { writeContractAsync: writeCofheAsync, isPending: isCofheWriting } = useCofheWriteContract();
 
   const [stats, setStats] = useState<ContractStats>(EMPTY_STATS);
   const [vaults, setVaults] = useState<VaultData[]>([]);
@@ -130,6 +134,21 @@ export function useVaultKeeper() {
       showError(message);
     }
   }, [connectAsync, connectors, showError]);
+
+  const encryptAmount = useCallback(
+    async (value: bigint) => {
+      const [encrypted] = await encryptInputsAsync([Encryptable.uint64(value)]);
+      const ctHash =
+        typeof encrypted.ctHash === "bigint" ? encrypted.ctHash : BigInt(encrypted.ctHash as `0x${string}`);
+      return {
+        ctHash,
+        securityZone: encrypted.securityZone,
+        utype: encrypted.utype,
+        signature: encrypted.signature as `0x${string}`,
+      };
+    },
+    [encryptInputsAsync]
+  );
 
   const switchToDefaultNetwork = useCallback(async () => {
     try {
@@ -402,8 +421,8 @@ export function useVaultKeeper() {
           }
         }
 
-        const encrypted = await encryptUint64(amount, VAULT_KEEPER_ADDRESS);
-        const hash = await writeContractAsync({
+        const encrypted = await encryptAmount(amount);
+        const hash = await writeCofheAsync({
           address: VAULT_KEEPER_ADDRESS as `0x${string}`,
           abi: VAULT_KEEPER_ABI as unknown as Abi,
           functionName: "deposit",
@@ -412,7 +431,7 @@ export function useVaultKeeper() {
         await waitForTx(hash);
       }, "Deposit successful.");
     },
-    [account, encryptUint64, publicClient, runWrite, selectedVault, showInfo, waitForTx, writeContractAsync]
+    [account, encryptAmount, publicClient, runWrite, selectedVault, showInfo, waitForTx, writeCofheAsync, writeContractAsync]
   );
 
   const withdraw = useCallback(
@@ -428,8 +447,8 @@ export function useVaultKeeper() {
 
       await runWrite(async () => {
         const amount = parseUnits(amountHuman, selectedVault.tokenDecimals);
-        const encrypted = await encryptUint64(amount, VAULT_KEEPER_ADDRESS);
-        const hash = await writeContractAsync({
+        const encrypted = await encryptAmount(amount);
+        const hash = await writeCofheAsync({
           address: VAULT_KEEPER_ADDRESS as `0x${string}`,
           abi: VAULT_KEEPER_ABI as unknown as Abi,
           functionName: "withdraw",
@@ -438,7 +457,7 @@ export function useVaultKeeper() {
         await waitForTx(hash);
       }, "Withdraw successful.");
     },
-    [encryptUint64, runWrite, selectedVault, showInfo, waitForTx, writeContractAsync]
+    [encryptAmount, runWrite, selectedVault, showInfo, waitForTx, writeCofheAsync]
   );
 
   const claimRewards = useCallback(
@@ -526,8 +545,8 @@ export function useVaultKeeper() {
           await waitForTx(approveHash);
         }
 
-        const encrypted = await encryptUint64(reward);
-        const depositHash = await writeContractAsync({
+        const encrypted = await encryptAmount(reward);
+        const depositHash = await writeCofheAsync({
           address: VAULT_KEEPER_ADDRESS as `0x${string}`,
           abi: VAULT_KEEPER_ABI as unknown as Abi,
           functionName: "deposit",
@@ -539,7 +558,7 @@ export function useVaultKeeper() {
     [
       account,
       decryptUint64,
-      encryptUint64,
+      encryptAmount,
       publicClient,
       readNonView,
       runWrite,
@@ -548,6 +567,7 @@ export function useVaultKeeper() {
       stats.rewardToken,
       vaults,
       waitForTx,
+      writeCofheAsync,
       writeContractAsync,
     ]
   );
@@ -696,6 +716,22 @@ export function useVaultKeeper() {
     [runWrite, showInfo, vaults, waitForTx, writeContractAsync]
   );
 
+  const getVaultTVLDecryptStatus = useCallback(
+    async (vaultId: number) => {
+      if (!publicClient) {
+        throw new Error("Public client unavailable.");
+      }
+      const result = (await publicClient.readContract({
+        address: VAULT_KEEPER_ADDRESS as `0x${string}`,
+        abi: VAULT_KEEPER_ABI as unknown as Abi,
+        functionName: "getVaultTVLDecryptStatus",
+        args: [BigInt(vaultId)],
+      })) as [bigint, boolean];
+      return { value: result[0], decrypted: result[1] };
+    },
+    [publicClient]
+  );
+
   return {
     account,
     isConnected,
@@ -709,7 +745,7 @@ export function useVaultKeeper() {
     setSelectedVaultId,
     explorerBase,
     isRefreshing,
-    isSubmitting,
+    isSubmitting: isSubmitting || isEncrypting || isCofheWriting,
     connectWallet,
     switchToDefaultNetwork,
     refreshAll,
@@ -723,5 +759,6 @@ export function useVaultKeeper() {
     updateApy,
     toggleVaultActive,
     emergencyWithdraw,
+    getVaultTVLDecryptStatus,
   };
 }

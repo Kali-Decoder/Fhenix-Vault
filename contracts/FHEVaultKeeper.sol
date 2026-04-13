@@ -98,6 +98,9 @@ contract VaultKeeper is Ownable {
             active: true
         });
 
+        // Allow public access to initial TVL ciphertext.
+        FHE.allowPublic(vaults[vaultCount].totalValueLocked);
+
         emit VaultCreated(vaultCount, name, riskLevel);
         vaultCount++;
     }
@@ -143,6 +146,10 @@ contract VaultKeeper is Ownable {
 
         userDeposits[vaultId][msg.sender].timestamp = block.timestamp;
 
+        // Allow user to decrypt their updated balance; TVL is safe to expose publicly.
+        FHE.allow(userDeposits[vaultId][msg.sender].amount, msg.sender);
+        FHE.allowPublic(v.totalValueLocked);
+
         emit DepositMade(vaultId, msg.sender);
     }
 
@@ -177,6 +184,10 @@ contract VaultKeeper is Ownable {
 
         // Step 6: Allow usage (good practice)
         FHE.allow(transferred, msg.sender);
+
+        // Allow user to decrypt their updated balance; TVL is safe to expose publicly.
+        FHE.allow(user.amount, msg.sender);
+        FHE.allowPublic(v.totalValueLocked);
 
         emit WithdrawalMade(vaultId, msg.sender);
     }
@@ -218,6 +229,9 @@ contract VaultKeeper is Ownable {
             rewardsClaimed[vaultId][msg.sender],
             safeReward
         );
+
+        // Allow user to decrypt their updated rewards.
+        FHE.allow(rewardsClaimed[vaultId][msg.sender], msg.sender);
     }
 
     /* ========== GETTERS (ALL INCLUDED) ========== */
@@ -293,14 +307,32 @@ contract VaultKeeper is Ownable {
 
     /* ========== EMERGENCY ========== */
 
-    function emergencyWithdraw(uint256 vaultId) external onlyOwner {
+    function emergencyWithdraw(
+        uint256 vaultId,
+        uint256 amountRaw
+    ) external onlyOwner {
         Vault storage v = vaults[vaultId];
         IFHERC20 token = IFHERC20(v.tokenAddress);
 
-        euint64 amount = v.totalValueLocked;
+        // Convert requested amount and clamp to TVL.
+        euint64 requested = FHE.asEuint64(amountRaw);
+        ebool canWithdraw = requested.lte(v.totalValueLocked);
+        euint64 amount = FHE.select(
+            canWithdraw,
+            requested,
+            FHE.asEuint64(0)
+        );
 
-        v.totalValueLocked = FHE.asEuint64(0);
+        v.totalValueLocked = FHE.sub(v.totalValueLocked, amount);
 
-        token.confidentialTransfer(owner(), amount);
+        euint64 transferred = token.confidentialTransfer(owner(), amount);
+        FHE.allow(transferred, owner());
+        FHE.allowPublic(v.totalValueLocked);
+    }
+
+    function getVaultTVLDecryptStatus(
+        uint256 vaultId
+    ) external view returns (uint64 value, bool decrypted) {
+        return FHE.getDecryptResultSafe(vaults[vaultId].totalValueLocked);
     }
 }

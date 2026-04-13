@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import "./theme.css";
-import { Providers } from "./providers";
+import { Web3Providers } from "./web3-providers";
 import { FontLoader } from "./components/FontLoader";
 import { Navigation } from "./components/Navigation";
 
@@ -39,7 +39,7 @@ export default function RootLayout({
           min-h-screen relative overflow-x-hidden
         `}
       >
-        <Providers>
+        <Web3Providers>
           <FontLoader />
           <Navigation />
           <div className="fixed inset-0 -z-10 h-full w-full bg-background">
@@ -53,7 +53,7 @@ export default function RootLayout({
               </p>
             </div>
           </footer>
-        </Providers>
+        </Web3Providers>
       </body>
     </html>
   );

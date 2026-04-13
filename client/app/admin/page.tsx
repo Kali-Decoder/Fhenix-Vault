@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { REWARD_TOKEN_ADDRESS } from "../config/vault_config";
-import { shortAddress, useVaultKeeper } from "../hooks/useVaultKeeper";
+import { formatToken, shortAddress, useVaultKeeper } from "../hooks/useVaultKeeper";
 
 export default function AdminPage() {
   const {
@@ -17,6 +17,7 @@ export default function AdminPage() {
     setRewardToken,
     toggleVaultActive,
     emergencyWithdraw,
+    getVaultTVLDecryptStatus,
   } = useVaultKeeper();
 
   const [showSetRewardModal, setShowSetRewardModal] = useState(false);
@@ -35,6 +36,14 @@ export default function AdminPage() {
   });
   const [updateApyForm, setUpdateApyForm] = useState({ vaultId: "0", minAPY: "", maxAPY: "" });
   const [emergencyForm, setEmergencyForm] = useState({ vaultId: "0", amount: "" });
+  const [emergencyTvl, setEmergencyTvl] = useState<bigint | null>(null);
+  const [emergencyTvlReady, setEmergencyTvlReady] = useState(false);
+  const [emergencyTvlError, setEmergencyTvlError] = useState<string | null>(null);
+
+  const emergencyVault = useMemo(
+    () => vaults.find((vault) => vault.id === Number(emergencyForm.vaultId)) ?? null,
+    [emergencyForm.vaultId, vaults]
+  );
 
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 sm:py-10">
@@ -87,7 +96,12 @@ export default function AdminPage() {
                 Update APY
               </button>
               <button
-                onClick={() => setShowEmergencyModal(true)}
+                onClick={() => {
+                  setEmergencyTvl(null);
+                  setEmergencyTvlReady(false);
+                  setEmergencyTvlError(null);
+                  setShowEmergencyModal(true);
+                }}
                 className="rounded-lg border border-white/30 bg-white/5 px-4 py-2 text-sm font-semibold text-white hover:bg-white/10"
               >
                 Emergency Withdraw
@@ -281,6 +295,37 @@ export default function AdminPage() {
                 className="w-full rounded-lg border border-zinc-700 bg-black px-3 py-2 text-sm text-white outline-none focus:border-white"
               />
             </FormField>
+            <div className="space-y-2">
+              <button
+                onClick={async () => {
+                  setEmergencyTvlError(null);
+                  const vaultId = Number(emergencyForm.vaultId);
+                  if (Number.isNaN(vaultId)) {
+                    setEmergencyTvlError("Enter a valid vault ID first.");
+                    return;
+                  }
+                  try {
+                    const result = await getVaultTVLDecryptStatus(vaultId);
+                    setEmergencyTvl(result.value);
+                    setEmergencyTvlReady(result.decrypted);
+                  } catch (error) {
+                    setEmergencyTvlError(error instanceof Error ? error.message : "Could not check TVL.");
+                  }
+                }}
+                disabled={isSubmitting}
+                className="rounded-lg border border-zinc-700 px-3 py-2 text-xs font-semibold text-zinc-200 hover:border-zinc-500 disabled:opacity-60"
+              >
+                Check TVL (safe decrypt)
+              </button>
+              {emergencyTvlError && <p className="text-xs text-rose-300">{emergencyTvlError}</p>}
+              {emergencyTvl !== null && (
+                <p className="text-xs text-zinc-300">
+                  {emergencyTvlReady
+                    ? `Decrypted TVL: ${formatToken(emergencyTvl, emergencyVault?.tokenDecimals ?? 6)}`
+                    : "Decrypting… try again in a few seconds."}
+                </p>
+              )}
+            </div>
           </div>
           <button
             onClick={async () => {

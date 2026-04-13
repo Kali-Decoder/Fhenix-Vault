@@ -1,5 +1,5 @@
-export const VAULT_KEEPER_ADDRESS = "0x075219E95666366499b66fBEeEd8e19B8F262272";
-export const REWARD_TOKEN_ADDRESS = "0x027358685B192d707cbD87c9bb3a08bc7dC04Ac9";
+export const VAULT_KEEPER_ADDRESS = "0xB1B24864571d4BFC82eA53e07B7F313d18A78bE9";
+export const REWARD_TOKEN_ADDRESS = "0xBfF8d6e42098DB2E7157F19A48C05773BfEc255c";
 
 export const VAULT_KEEPER_ABI = [
   {
@@ -273,6 +273,11 @@ export const VAULT_KEEPER_ABI = [
         "internalType": "uint256",
         "name": "vaultId",
         "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "amountRaw",
+        "type": "uint256"
       }
     ],
     "name": "emergencyWithdraw",
@@ -498,6 +503,30 @@ export const VAULT_KEEPER_ABI = [
         "internalType": "euint64",
         "name": "",
         "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "vaultId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getVaultTVLDecryptStatus",
+    "outputs": [
+      {
+        "internalType": "uint64",
+        "name": "value",
+        "type": "uint64"
+      },
+      {
+        "internalType": "bool",
+        "name": "decrypted",
+        "type": "bool"
       }
     ],
     "stateMutability": "view",
@@ -743,7 +772,7 @@ export const VAULT_KEEPER_ABI = [
   }
 ] as const;
 
-export const ERC20_ABI = [
+export const ERC20_ABI =[
   {
     "inputs": [],
     "stateMutability": "nonpayable",

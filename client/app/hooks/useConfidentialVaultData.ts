@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useCofheClient as useCofheClientSDK, useCofheConnection } from "@cofhe/react";
 import { FheTypes } from "@cofhe/sdk";
 import { useAccount, useReadContract } from "wagmi";
 import { type Abi, zeroAddress } from "viem";
-import { useCofhe } from "@/contexts/cofhe-provider";
 import { ERC20_ABI, VAULT_KEEPER_ABI, VAULT_KEEPER_ADDRESS } from "../config/vault_config";
 
 type DecryptState = {
@@ -14,7 +14,8 @@ type DecryptState = {
 };
 
 function useDecryptUint64(ctHash: unknown, enabled: boolean) {
-  const { ready, client } = useCofhe();
+  const client = useCofheClientSDK();
+  const { connected } = useCofheConnection();
   const [state, setState] = useState<DecryptState>({
     value: null,
     decrypting: false,
@@ -24,7 +25,7 @@ function useDecryptUint64(ctHash: unknown, enabled: boolean) {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      if (!enabled || !ready || !client || !client.connected || !ctHash) {
+      if (!enabled || !connected || !client || !ctHash) {
         if (!cancelled) {
           setState({ value: null, decrypting: false, error: null });
         }
@@ -58,7 +59,7 @@ function useDecryptUint64(ctHash: unknown, enabled: boolean) {
     return () => {
       cancelled = true;
     };
-  }, [ctHash, enabled, ready, client]);
+  }, [ctHash, enabled, connected, client]);
 
   return state;
 }

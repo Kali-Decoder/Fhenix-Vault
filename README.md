@@ -85,6 +85,26 @@ The repository contains:
 
 This section maps every major feature to its Fhenix FHE usage so the full application surface area is easy to evaluate.
 
+### Privacy Architecture (FHE Data Flow)
+
+```mermaid
+flowchart LR
+  U["User Wallet"] --> FE["Frontend (Next.js)"]
+  FE --> ENC["CoFHE Client<br/>Encrypt + Permits"]
+  ENC --> TX["Encrypted Tx (InEuint64)"]
+  TX --> VK["VaultKeeper (fhEVM)"]
+  VK --> OPS["FHE Ops<br/>(add/sub/select/div)"]
+  OPS --> ST["Encrypted State<br/>(balances, rewards, TVL)"]
+  ST --> ALW["Allow + Public Allow"]
+  ALW --> DEC["Safe Decrypt Check<br/>getDecryptResultSafe"]
+  DEC --> FE
+```
+
+**Privacy guarantees shown above**
+- Values are encrypted client-side before hitting the chain.
+- Contracts only compute on ciphertext; they never reveal plaintext on-chain.
+- Decryption happens only in the client after permissioning (`allow`) and safe polling (`getDecryptResultSafe`).
+
 ### Architecture Diagram
 
 ```mermaid

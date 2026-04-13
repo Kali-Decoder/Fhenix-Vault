@@ -55,6 +55,23 @@ const nextConfig: NextConfig = {
         path: false,
         os: false,
       };
+
+      // Prevent circular runtime chunks between CoFHE + TFHE WASM in dev.
+      config.optimization = config.optimization || {};
+      const existingCacheGroups = config.optimization.splitChunks?.cacheGroups ?? {};
+      config.optimization.splitChunks = {
+        ...(config.optimization.splitChunks ?? {}),
+        cacheGroups: {
+          ...existingCacheGroups,
+          cofheTfhe: {
+            test: /[\\/]node_modules[\\/](?:@cofhe|cofhejs|tfhe)[\\/]/,
+            name: "cofhe-tfhe",
+            chunks: "all",
+            priority: 30,
+            enforce: true,
+          },
+        },
+      };
     }
     
     return config;
