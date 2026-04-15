@@ -98,7 +98,6 @@ contract VaultKeeper is Ownable {
             active: true
         });
 
-        // Allow public access to initial TVL ciphertext.
         FHE.allowPublic(vaults[vaultCount].totalValueLocked);
 
         emit VaultCreated(vaultCount, name, riskLevel);
@@ -110,48 +109,44 @@ contract VaultKeeper is Ownable {
     }
 
     /* ========== USER FUNCTIONS ========== */
-    function deposit(uint256 vaultId, InEuint64 calldata encAmount) external {
-        Vault storage v = vaults[vaultId];
-        require(v.active, "Inactive vault");
+ function deposit(uint256 vaultId, InEuint64 calldata encAmount) external {
+    Vault storage v = vaults[vaultId];
+    require(v.active, "Inactive vault");
 
-        IFHERC20 token = IFHERC20(v.tokenAddress);
+    IFHERC20 token = IFHERC20(v.tokenAddress);
 
-        // Step 1: Transfer (returns ACTUAL transferred amount)
-        euint64 transferred = token.confidentialTransferFrom(
-            msg.sender,
-            address(this),
-            encAmount
-        );
+    // ✅ DIRECT transfer
+    euint64 transferred = token.confidentialTransferFrom(
+        msg.sender,
+        address(this),
+        encAmount
+    );
 
-        // Step 2: Allow contract to use ciphertext
-        FHE.allow(transferred, address(this));
+    // ✅ allow contract
+    FHE.allowThis(transferred);
 
-        // Step 3: Sanitize (handle silent failure)
-        ebool isZero = FHE.eq(transferred, FHE.asEuint64(0));
+    // ✅ sanitize
+    ebool isZero = FHE.eq(transferred, FHE.asEuint64(0));
+    euint64 safeAmount = FHE.select(isZero, FHE.asEuint64(0), transferred);
 
-        euint64 safeAmount = FHE.select(isZero, FHE.asEuint64(0), transferred);
-
-        // Step 4: Add depositor if first time
-        if (userDeposits[vaultId][msg.sender].timestamp == 0) {
-            vaultDepositors[vaultId].push(msg.sender);
-        }
-
-        // Step 5: Update balances using SAFE amount
-        userDeposits[vaultId][msg.sender].amount = FHE.add(
-            userDeposits[vaultId][msg.sender].amount,
-            safeAmount
-        );
-
-        v.totalValueLocked = FHE.add(v.totalValueLocked, safeAmount);
-
-        userDeposits[vaultId][msg.sender].timestamp = block.timestamp;
-
-        // Allow user to decrypt their updated balance; TVL is safe to expose publicly.
-        FHE.allow(userDeposits[vaultId][msg.sender].amount, msg.sender);
-        FHE.allowPublic(v.totalValueLocked);
-
-        emit DepositMade(vaultId, msg.sender);
+    // ✅ update balances
+    if (userDeposits[vaultId][msg.sender].timestamp == 0) {
+        vaultDepositors[vaultId].push(msg.sender);
     }
+
+    userDeposits[vaultId][msg.sender].amount =
+        FHE.add(userDeposits[vaultId][msg.sender].amount, safeAmount);
+
+    v.totalValueLocked = FHE.add(v.totalValueLocked, safeAmount);
+
+    userDeposits[vaultId][msg.sender].timestamp = block.timestamp;
+
+    // ✅ permissions
+    FHE.allow(userDeposits[vaultId][msg.sender].amount, msg.sender);
+    FHE.allowPublic(v.totalValueLocked);
+
+    emit DepositMade(vaultId, msg.sender);
+}
 
     function withdraw(uint256 vaultId, InEuint64 calldata encAmount) external {
         Vault storage v = vaults[vaultId];
@@ -317,11 +312,7 @@ contract VaultKeeper is Ownable {
         // Convert requested amount and clamp to TVL.
         euint64 requested = FHE.asEuint64(amountRaw);
         ebool canWithdraw = requested.lte(v.totalValueLocked);
-        euint64 amount = FHE.select(
-            canWithdraw,
-            requested,
-            FHE.asEuint64(0)
-        );
+        euint64 amount = FHE.select(canWithdraw, requested, FHE.asEuint64(0));
 
         v.totalValueLocked = FHE.sub(v.totalValueLocked, amount);
 

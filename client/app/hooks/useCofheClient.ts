@@ -1,10 +1,10 @@
 "use client";
 
 import { useCallback, useRef } from "react";
-import { useCofheClient as useCofheClientSDK, useCofheConnection } from "@cofhe/react";
 import { Encryptable, FheTypes } from "@cofhe/sdk";
-import { useAccount } from "wagmi";
+import { useAccount, useChainId } from "wagmi";
 import { useToastContext } from "../contexts/ToastContext";
+import { useCofhe } from "@/contexts/cofhe-provider";
 
 type InEuint64 = {
   ctHash: bigint;
@@ -15,50 +15,66 @@ type InEuint64 = {
 
 export function useCofheClient() {
   const { showError } = useToastContext();
-  const client = useCofheClientSDK();
-  const { connected, connecting } = useCofheConnection();
+  const { client } = useCofhe();
   const { address } = useAccount();
+  const chainId = useChainId();
   const permitReadyRef = useRef(false);
 
   const ensurePermitReady = useCallback(async () => {
-    if (!client || !connected) {
+    if (!client || !client.connected) {
       throw new Error("CoFHE client not connected.");
     }
     if (!address) {
       throw new Error("Connect wallet to create a permit.");
     }
+    if (!chainId) {
+      throw new Error("Chain id unavailable.");
+    }
     if (!permitReadyRef.current) {
-      await client.permits.getOrCreateSelfPermit();
+      await client.permits.getOrCreateSelfPermit(chainId, address, { issuer: address });
       permitReadyRef.current = true;
     }
-  }, [address, client, connected]);
+  }, [address, chainId, client]);
 
   const encryptUint64 = useCallback(
     async (value: bigint, accountOverride?: string) => {
-      if (!client || !connected) {
+      if (!client || !client.connected) {
         throw new Error("CoFHE client not connected.");
       }
       const builder = client.encryptInputs([Encryptable.uint64(value)]);
+      if (chainId) {
+        builder.setChainId(chainId);
+      }
       if (accountOverride) {
         builder.setAccount(accountOverride);
+      } else if (address) {
+        builder.setAccount(address);
       }
       const [encrypted] = await builder.execute();
       return encrypted as InEuint64;
     },
-    [client, connected]
+    [address, chainId, client]
   );
 
   const decryptUint64 = useCallback(
     async (ctHash: string) => {
       try {
-        if (!client || !connected) {
+        if (!client || !client.connected) {
           throw new Error("CoFHE client not connected.");
         }
         if (!ctHash) {
           return 0n;
         }
         await ensurePermitReady();
-        const value = await client.decryptForView(ctHash, FheTypes.Uint64).execute();
+        if (!chainId || !address) {
+          throw new Error("Wallet not ready.");
+        }
+        const value = await client
+          .decryptForView(ctHash, FheTypes.Uint64)
+          .setChainId(chainId)
+          .setAccount(address)
+          .withPermit()
+          .execute();
         return value as bigint;
       } catch (error) {
         const message = error instanceof Error ? error.message : "Decryption failed.";
@@ -66,12 +82,12 @@ export function useCofheClient() {
         throw error;
       }
     },
-    [client, connected, ensurePermitReady, showError]
+    [address, chainId, client, ensurePermitReady, showError]
   );
 
   return {
-    connected,
-    connecting,
+    connected: Boolean(client?.connected),
+    connecting: Boolean(client?.connecting),
     encryptUint64,
     decryptUint64,
     ensurePermitReady,

@@ -1,11 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useCofheClient as useCofheClientSDK, useCofheConnection } from "@cofhe/react";
-import { FheTypes } from "@cofhe/sdk";
 import { useAccount, useReadContract } from "wagmi";
 import { type Abi, zeroAddress } from "viem";
 import { ERC20_ABI, VAULT_KEEPER_ABI, VAULT_KEEPER_ADDRESS } from "../config/vault_config";
+import { useCofheClient } from "./useCofheClient";
 
 type DecryptState = {
   value: bigint | null;
@@ -14,8 +13,7 @@ type DecryptState = {
 };
 
 function useDecryptUint64(ctHash: unknown, enabled: boolean) {
-  const client = useCofheClientSDK();
-  const { connected } = useCofheConnection();
+  const { decryptUint64, connected } = useCofheClient();
   const [state, setState] = useState<DecryptState>({
     value: null,
     decrypting: false,
@@ -25,7 +23,7 @@ function useDecryptUint64(ctHash: unknown, enabled: boolean) {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      if (!enabled || !connected || !client || !ctHash) {
+      if (!enabled || !connected || !ctHash) {
         if (!cancelled) {
           setState({ value: null, decrypting: false, error: null });
         }
@@ -42,9 +40,9 @@ function useDecryptUint64(ctHash: unknown, enabled: boolean) {
         setState({ value: null, decrypting: true, error: null });
       }
       try {
-        const v = await client.decryptForView(ct as `0x${string}`, FheTypes.Uint64).execute();
+        const v = await decryptUint64(ct as `0x${string}`);
         if (!cancelled) {
-          setState({ value: v as bigint, decrypting: false, error: null });
+          setState({ value: v, decrypting: false, error: null });
         }
       } catch (err) {
         if (!cancelled) {
@@ -59,7 +57,7 @@ function useDecryptUint64(ctHash: unknown, enabled: boolean) {
     return () => {
       cancelled = true;
     };
-  }, [ctHash, enabled, connected, client]);
+  }, [ctHash, enabled, connected, decryptUint64]);
 
   return state;
 }
@@ -79,8 +77,7 @@ export function useConfidentialVaultData(vaultId?: number, tokenAddress?: string
   const enabled =
     isConnected &&
     !!address &&
-    vaultId !== undefined &&
-    VAULT_KEEPER_ADDRESS !== zeroAddress;
+    vaultId !== undefined;
 
   const vaultArgs = useMemo(() => [BigInt(vaultId ?? 0)], [vaultId]);
   const userArgs = useMemo(() => [BigInt(vaultId ?? 0), address ?? zeroAddress], [vaultId, address]);

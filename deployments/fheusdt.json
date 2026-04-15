@@ -1,9 +1,9 @@
 {
   "contract": "FHEUSDT",
-  "address": "0xBfF8d6e42098DB2E7157F19A48C05773BfEc255c",
+  "address": "0x5296b67e266452a63245C272c14FE4B552Be71F2",
   "deployer": "0xdAF0182De86F904918Db8d07c7340A1EfcDF8244",
   "mintedTo": "0xdAF0182De86F904918Db8d07c7340A1EfcDF8244",
   "mintAmount": 1000000,
   "chainId": "421614",
-  "deployedAt": "2026-04-13T18:52:46.048Z"
+  "deployedAt": "2026-04-15T08:12:09.045Z"
 }

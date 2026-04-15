@@ -1,9 +1,19 @@
 import type { NextConfig } from "next";
-import webpack from "webpack";
 
-const nextConfig: NextConfig = {
+// Use Next's compiled webpack to avoid needing `webpack` as a direct dependency.
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const webpack = require("next/dist/compiled/webpack/webpack");
+
+type NextConfigWithExtras = NextConfig & {
+  eslint?: { ignoreDuringBuilds?: boolean };
+  typescript?: { ignoreBuildErrors?: boolean };
+  turbopack?: Record<string, unknown>;
+  webpack?: (...args: any[]) => any;
+};
+
+const nextConfig: NextConfigWithExtras = {
   // Output configuration for Vercel
-  output: 'standalone',
+  output: "standalone",
   
   // Disable eslint during builds
   eslint: {

@@ -1,14 +1,9 @@
 "use client";
 
-import {
-  useCofheClient,
-  useCofheConnection,
-  useCofheActivePermit,
-  useCofheAllPermits,
-  useCofheSelectPermit,
-} from "@cofhe/react";
+import { ValidationUtils } from "@cofhe/sdk/permits";
 import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useAccount } from "wagmi";
+import { useCofhe } from "@/contexts/cofhe-provider";
 
 type VaultKeeperPermitContextValue = {
   hasPermit: boolean;
@@ -28,54 +23,66 @@ function getStorageKey(chainId: number | undefined, address: string | undefined)
 
 export function VaultKeeperPermitProvider({ children }: { children: ReactNode }) {
   const { address, isConnected, chainId } = useAccount();
-  const cofheClient = useCofheClient();
-  const { walletClient, publicClient } = useCofheConnection();
-  const activePermit = useCofheActivePermit();
-  const allPermits = useCofheAllPermits();
-  const selectPermit = useCofheSelectPermit();
+  const { client: cofheClient } = useCofhe();
   const [isCreatingPermit, setIsCreatingPermit] = useState(false);
   const [permitError, setPermitError] = useState<string | null>(null);
   const autoRequestedRef = useRef(false);
+  const [permitsTick, setPermitsTick] = useState(0);
 
   const requestPermitCreation = useCallback(async () => {
     if (!isConnected || !address || !chainId) return;
-    if (!walletClient || !publicClient) return;
 
     setPermitError(null);
     setIsCreatingPermit(true);
 
     try {
-      const permit = await cofheClient.permits.getOrCreateSelfPermit(chainId, address);
-
-      if (permit?.hash) {
-        selectPermit(permit.hash);
-      }
+      const permit = await cofheClient.permits.getOrCreateSelfPermit(chainId, address, { issuer: address });
+      if (permit?.hash) cofheClient.permits.selectActivePermit(permit.hash, chainId, address);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown permit creation error";
       setPermitError(message);
     } finally {
       setIsCreatingPermit(false);
     }
-  }, [address, chainId, cofheClient.permits, isConnected, publicClient, selectPermit, walletClient]);
+  }, [address, chainId, cofheClient.permits, isConnected]);
+
+  useEffect(() => {
+    return cofheClient.permits.subscribe(() => setPermitsTick((x) => x + 1));
+  }, [cofheClient.permits]);
+
+  const activePermitHash = useMemo(() => {
+    if (!isConnected || !address || !chainId) return undefined;
+    return cofheClient.permits.getActivePermitHash(chainId, address);
+  }, [address, chainId, cofheClient.permits, isConnected, permitsTick]);
+
+  const activePermit = useMemo(() => {
+    if (!activePermitHash) return undefined;
+    return cofheClient.permits.getPermit(activePermitHash, chainId, address);
+  }, [activePermitHash, address, chainId, cofheClient.permits]);
+
+  const allPermits = useMemo(() => {
+    if (!isConnected || !address || !chainId) return [];
+    return Object.values(cofheClient.permits.getPermits(chainId, address));
+  }, [address, chainId, cofheClient.permits, isConnected, permitsTick]);
 
   useEffect(() => {
     if (!isConnected || !address) return;
-    if (!activePermit?.permit?.hash || !chainId) return;
+    if (!activePermitHash || !chainId) return;
 
-    window.localStorage.setItem(getStorageKey(chainId, address), activePermit.permit.hash);
-  }, [activePermit?.permit?.hash, address, chainId, isConnected]);
+    window.localStorage.setItem(getStorageKey(chainId, address), activePermitHash);
+  }, [activePermitHash, address, chainId, isConnected]);
 
   useEffect(() => {
     if (!isConnected || !address || !chainId) return;
-    if (activePermit?.permit?.hash) return;
+    if (activePermitHash) return;
     if (!allPermits.length) return;
 
     const storageKey = getStorageKey(chainId, address);
     const savedHash = window.localStorage.getItem(storageKey);
     const match = savedHash ? allPermits.find((permit) => permit.hash === savedHash) : undefined;
 
-    selectPermit(match?.hash ?? allPermits[0].hash);
-  }, [activePermit?.permit?.hash, address, allPermits, chainId, isConnected, selectPermit]);
+    cofheClient.permits.selectActivePermit(match?.hash ?? allPermits[0].hash, chainId, address);
+  }, [activePermitHash, address, allPermits, chainId, cofheClient.permits, isConnected]);
 
   useEffect(() => {
     if (!isConnected || !address) {
@@ -84,21 +91,21 @@ export function VaultKeeperPermitProvider({ children }: { children: ReactNode })
       return;
     }
 
-    if (activePermit?.permit?.hash || allPermits.length > 0) return;
+    if (activePermitHash || allPermits.length > 0) return;
     if (autoRequestedRef.current) return;
 
     autoRequestedRef.current = true;
     void requestPermitCreation();
-  }, [activePermit?.permit?.hash, address, allPermits.length, isConnected, requestPermitCreation]);
+  }, [activePermitHash, address, allPermits.length, isConnected, requestPermitCreation]);
 
   const value = useMemo<VaultKeeperPermitContextValue>(
     () => ({
-      hasPermit: Boolean(activePermit?.permit?.hash),
-      isPermitValid: Boolean(activePermit?.isValid),
-      permitHash: activePermit?.permit?.hash,
+      hasPermit: Boolean(activePermitHash),
+      isPermitValid: activePermit ? ValidationUtils.isValid(activePermit).valid : false,
+      permitHash: activePermitHash,
       permitCount: allPermits.length,
       isPermitInitializing: Boolean(
-        isCreatingPermit || (isConnected && !activePermit?.permit?.hash && allPermits.length === 0)
+        isCreatingPermit || (isConnected && !activePermitHash && allPermits.length === 0)
       ),
       permitError,
       requestPermitCreation: () => {
@@ -106,8 +113,8 @@ export function VaultKeeperPermitProvider({ children }: { children: ReactNode })
       },
     }),
     [
-      activePermit?.isValid,
-      activePermit?.permit?.hash,
+      activePermit,
+      activePermitHash,
       allPermits.length,
       isConnected,
       isCreatingPermit,

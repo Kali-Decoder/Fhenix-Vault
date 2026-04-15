@@ -1,8 +1,9 @@
 import { ethers } from "hardhat";
 import { FHEUSDT__factory } from "../typechain-types";
-import { cofhejs, FheTypes } from "cofhejs/node";
+import { FheTypes } from "@cofhe/sdk";
 import * as fs from "fs";
 import * as path from "path";
+import { getCofheClientForEthers6 } from "./cofheHardhat";
 
 function resolveTokenAddress(): string {
   const envAddress =
@@ -37,6 +38,11 @@ async function main() {
   const tokenAddress = resolveTokenAddress();
   const [signer] = await ethers.getSigners();
   const provider = signer.provider ?? ethers.provider;
+  const network = await provider.getNetwork();
+  const chainId = Number(network.chainId);
+  if (!Number.isSafeInteger(chainId)) {
+    throw new Error(`Invalid chainId: ${network.chainId.toString()}`);
+  }
 
   const target = (process.env.USER_ADDRESS || process.argv[2] || signer.address).trim();
   if (!ethers.isAddress(target)) {
@@ -50,13 +56,7 @@ async function main() {
     );
   }
 
-  const env = (process.env.COFHE_ENV || "TESTNET").toUpperCase();
-
-  await cofhejs.initializeWithEthers({
-    ethersProvider: provider,
-    ethersSigner: signer,
-    environment: env,
-  });
+  const cofheClient = await getCofheClientForEthers6({ provider, signer });
 
   const token = FHEUSDT__factory.connect(tokenAddress, signer);
   const [decimals, isIndicator, indicator, ciphertext] = await Promise.all([
@@ -66,21 +66,15 @@ async function main() {
     token.confidentialBalanceOf(target),
   ]);
 
-  const permit = await cofhejs.createPermit({
-    type: "self",
+  const permit = await cofheClient.permits.getOrCreateSelfPermit(chainId, signer.address, {
     issuer: signer.address,
   });
-
-  const decryptedResult = await cofhejs.unseal(
-    ciphertext,
-    FheTypes.Uint64,
-    permit.data.issuer,
-    permit.data.getHash()
-  );
-  const decrypted =
-    typeof decryptedResult === "bigint"
-      ? decryptedResult
-      : (decryptedResult as { data?: bigint; success?: boolean; error?: unknown }).data ?? 0n;
+  const decrypted = await cofheClient
+    .decryptForView(ciphertext, FheTypes.Uint64)
+    .setChainId(chainId)
+    .setAccount(signer.address)
+    .withPermit(permit)
+    .execute();
 
   console.log("FHEUSDT address:", tokenAddress);
   console.log("User:", target);
